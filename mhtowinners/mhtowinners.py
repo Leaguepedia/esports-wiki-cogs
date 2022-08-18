@@ -15,7 +15,7 @@ class MhToWinners(commands.Cog):
         self.bot = bot
 
     @commands.command(pass_context=True)
-    async def sbtowinners(self, ctx, *, title_list):
+    async def sbtowinners(self, ctx, *, title_list=""):
         title_list = [title.strip() for title in title_list.split(",")]
         await self._do_the_thing(ctx, SbToWinnersRunner, title_list)
 
