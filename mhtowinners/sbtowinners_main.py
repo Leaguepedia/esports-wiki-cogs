@@ -9,7 +9,20 @@ class SbToWinnersRunner:
 
     def __init__(self, site: EsportsClient, title_list):
         self.site = site
-        self.title_list = [f"\"{site.cache.get_target(title)}\"" for title in title_list]
+        self.events_to_skip = []
+        if title_list != [""]:
+            self.title_list = [f"\"{site.cache.get_target(title)}\"" for title in title_list]
+        else:
+            self.title_list = []
+
+    def get_where(self):
+        where = f"(MSG.Blue IS NULL OR MSG.Red IS NULL OR MSG.Winner IS NULL) AND (SG.Team1 IS NOT NULL OR " \
+                f"SG.Team2 IS NOT NULL OR SG.WinTeam IS NOT NULL) " \
+                f"AND MSG.OverviewPage NOT IN ({','.join(self.events_to_skip)}) "
+        if self.title_list:
+            where += f"AND MSG.OverviewPage IN ({','.join(self.title_list)})"
+        print(where)
+        return where
 
     def run(self):
         result = self.site.cargo_client.query(
@@ -17,9 +30,9 @@ class SbToWinnersRunner:
             fields="OverviewPage",
             where='Script="sbtowinners"'
         )
-        events_to_skip = []
+
         for item in result:
-            events_to_skip.append("'{}'".format(item["OverviewPage"]))
+            self.events_to_skip.append("'{}'".format(item["OverviewPage"]))
 
         fields = [
             "SG.Team1",
@@ -35,10 +48,7 @@ class SbToWinnersRunner:
             tables="ScoreboardGames=SG, MatchScheduleGame=MSG",
             fields=fields,
             join_on="MSG.GameId=SG.GameId",
-            where=f"(MSG.Blue IS NULL OR MSG.Red IS NULL OR MSG.Winner IS NULL) "
-                  f"AND (SG.Team1 IS NOT NULL OR SG.Team2 IS NOT NULL OR SG.WinTeam IS NOT NULL) "
-                  f"AND MSG.OverviewPage NOT IN ({','.join(events_to_skip)}) "
-                  f"AND MSG.OverviewPage IN ({','.join(self.title_list)})",
+            where=self.get_where(),
             order_by='MSG._pageName'
         )
 
@@ -99,4 +109,4 @@ class SbToWinnersRunner:
 if __name__ == '__main__':
     credentials = AuthCredentials(user_file='me')
     lol_site = EsportsClient('lol', credentials=credentials)  # Set wiki
-    SbToWinnersRunner(lol_site).run()
+    SbToWinnersRunner(lol_site, [""]).run()
