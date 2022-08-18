@@ -9,7 +9,7 @@ class SbToWinnersRunner:
 
     def __init__(self, site: EsportsClient, title_list):
         self.site = site
-        self.title_list = [f"\"{title}\"" for title in title_list]
+        self.title_list = [f"\"{site.cache.get_target(title)}\"" for title in title_list]
 
     def run(self):
         result = self.site.cargo_client.query(
