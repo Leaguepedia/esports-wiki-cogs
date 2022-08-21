@@ -1,42 +1,23 @@
-import discord
-import json
+from datetime import datetime, timedelta
+import pytz
 import requests
 from redbot.core import commands
 from redbot.core.utils.chat_formatting import text_to_file
-from mwrogue.wiki_time_parser import time_from_str
+import discord
 
-# links
-SCHEDULE = "https://esports-api.lolesports.com/persisted/gw/getSchedule?hl=en-US&leagueId={}"
+SCHEDULE_ENDPOINT = "https://esports-api.lolesports.com/persisted/gw/getSchedule?hl=en-US&leagueId={}"
+NEXT_PAGE = "&pageToken={}"
+LEAGUES_ENDPOINT = "https://esports-api.lolesports.com/persisted/gw/getLeagues?hl=en-US"
 
-NEXT = "https://esports-api.lolesports.com/persisted/gw/getSchedule?hl=en-US&leagueId={}&pageToken={}"
-
-LEAGUES = "https://esports-api.lolesports.com/persisted/gw/getLeagues?hl=en-US"
-
-# templates
 START = """== {0} ==
 {{{{SetPatch|patch= |disabled= |hotfix= |footnote=}}}}
-{{{{MatchSchedule/Start|tab={0} |bestof={1} |shownname= }}}}\n"""
-
-MATCH = """{{{{MatchSchedule|<!-- Do not change the order of team1 and team2!! -->|team1={t1} |team2={t2} |team1score= |team2score= |winner=
-|date={date} |time={time} |timezone={timezone} |dst={dst} |pbp= |color= |vodinterview= |with= |stream={stream} |reddit=\n{games}\n}}}}\n"""
-
-BO1_GAMES = """|game1={{MatchSchedule/Game\n|blue= |red= |winner= |ssel= |ff=\n|mh=\n|riot_platform_game_id=\n|recap=\n|vodpb=\n|vodstart=\n|vodpost=\n|vodhl=\n|vodinterview=\n|with=\n|mvp=\n}}"""
-
-BO2_GAMES = """|game1={{MatchSchedule/Game\n|blue= |red= |winner= |ssel= |ff=\n|mh=\n|riot_platform_game_id=\n|recap=\n|vodpb=\n|vodstart=\n|vodpost=\n|vodhl=\n|vodinterview=\n|with=\n|mvp=\n}}
-|game2={{MatchSchedule/Game\n|blue= |red= |winner= |ssel= |ff=\n|mh=\n|riot_platform_game_id=\n|recap=\n|vodpb=\n|vodstart=\n|vodpost=\n|vodhl=\n|vodinterview=\n|with=\n|mvp=\n}}"""
-
-BO3_GAMES = """|game1={{MatchSchedule/Game\n|blue= |red= |winner= |ssel= |ff=\n|mh=\n|riot_platform_game_id=\n|recap=\n|vodpb=\n|vodstart=\n|vodpost=\n|vodhl=\n|vodinterview=\n|with=\n|mvp=\n}}
-|game2={{MatchSchedule/Game\n|blue= |red= |winner= |ssel= |ff=\n|mh=\n|riot_platform_game_id=\n|recap=\n|vodpb=\n|vodstart=\n|vodpost=\n|vodhl=\n|vodinterview=\n|with=\n|mvp=\n}}
-|game3={{MatchSchedule/Game\n|blue= |red= |winner= |ssel= |ff=\n|mh=\n|riot_platform_game_id=\n|recap=\n|vodpb=\n|vodstart=\n|vodpost=\n|vodhl=\n|vodinterview=\n|with=\n|mvp=\n}}"""
-
-BO5_GAMES = """|game1={{MatchSchedule/Game\n|blue= |red= |winner= |ssel= |ff=\n|mh=\n|riot_platform_game_id=\n|recap=\n|vodpb=\n|vodstart=\n|vodpost=\n|vodhl=\n|vodinterview=\n|with=\n|mvp=\n}}
-|game2={{MatchSchedule/Game\n|blue= |red= |winner= |ssel= |ff=\n|mh=\n|riot_platform_game_id=\n|recap=\n|vodpb=\n|vodstart=\n|vodpost=\n|vodhl=\n|vodinterview=\n|with=\n|mvp=\n}}
-|game3={{MatchSchedule/Game\n|blue= |red= |winner= |ssel= |ff=\n|mh=\n|riot_platform_game_id=\n|recap=\n|vodpb=\n|vodstart=\n|vodpost=\n|vodhl=\n|vodinterview=\n|with=\n|mvp=\n}}
-|game4={{MatchSchedule/Game\n|blue= |red= |winner= |ssel= |ff=\n|mh=\n|riot_platform_game_id=\n|recap=\n|vodpb=\n|vodstart=\n|vodpost=\n|vodhl=\n|vodinterview=\n|with=\n|mvp=\n}}
-|game5={{MatchSchedule/Game\n|blue= |red= |winner= |ssel= |ff=\n|mh=\n|riot_platform_game_id=\n|recap=\n|vodpb=\n|vodstart=\n|vodpost=\n|vodhl=\n|vodinterview=\n|with=\n|mvp=\n}}"""
-
-END = "{{MatchSchedule/End}}\n"
-
+{{{{MatchSchedule/Start|tab={0} |bestof={1} |shownname={2} }}}}\n"""
+MATCH = """{{{{MatchSchedule|bestof={best_of} |team1={t1} |team2={t2} |team1score= |team2score= |winner=
+|date={date} |time={time} |timezone={timezone} |dst={dst} |pbp= |color= |vodinterview= |with= |stream={stream}
+{games}}}}}\n"""
+GAME = """|game{}={{{{MatchSchedule/Game\n|blue= |red= |winner= |ssel= |ff=\n|riot_platform_game_id=\n|recap=\n|vodpb=
+|vodstart=\n|vodpost=\n|vodhl=\n|vodinterview=\n|with=\n|mvp=\n}}}}\n"""
+END = "{{MatchSchedule/End}}\n\n"
 
 ERROR_MESSAGE = "An error has occured. {} might not exist. If your input contains spaces, try again using quotes!"
 
@@ -51,12 +32,12 @@ class MatchScheduleParser(commands.Cog):
         """Commands to parse lolesports match schedules"""
 
     @lolesportsparser.command()
-    async def parse(self, ctx, tournament, stream=""):
+    async def parse(self, ctx, tournament, shownname="", stream=""):
         try:
-            schedule = get_schedule(tournament, stream)
+            schedule = run(tournament, shownname, stream)
         except TypeError:
             try:
-                schedule = get_schedule(tournament.upper(), stream)
+                schedule = get_schedule(tournament.upper(), shownname, stream)
             except TypeError:
                 await ctx.send(ERROR_MESSAGE.format(tournament))
                 return
@@ -71,97 +52,89 @@ class MatchScheduleParser(commands.Cog):
 
 
 def get_headers():
-    api_key = "0TvQnueqKa5mxJntVWt0w4LpLfEkrV1Ta8rQBb9Z"  # Todo: Get API Key from website but probably not
-    headers = {"x-api-key": api_key}
+    headers = {"x-api-key": "0TvQnueqKa5mxJntVWt0w4LpLfEkrV1Ta8rQBb9Z"}
     return headers
 
 
-def get_json(json_type, headers):
-    request = requests.get(json_type, headers=headers)
-    json_file = json.loads(request.text)
-    return json_file
+def get_one_schedule(league_id, headers, newer):
+    if newer:
+        endpoint = SCHEDULE_ENDPOINT.format(league_id) + NEXT_PAGE.format(newer)
+    else:
+        endpoint = SCHEDULE_ENDPOINT.format(league_id)
+    schedule = requests.get(endpoint, headers=headers).json()
+    return schedule
 
 
-def get_all_jsons(first_json, league_id, headers):
-    jsons = [first_json]
-    next_token = filter_json(first_json, "data", "schedule", "pages", "newer")
-    while next_token is not None:
-        next_json = get_json(NEXT.format(league_id, next_token), headers)
-        jsons.append(next_json)
-        next_token = filter_json(next_json, "data", "schedule", "pages", "newer")
-    return jsons
-
-
-def get_league(league_name, headers):
-    json_leagues = get_json(LEAGUES, headers)
-    json_leagues = filter_json(json_leagues, "data", "leagues")
-    league_dict = next((league_dict for league_dict in json_leagues if league_dict["name"] == league_name), None)
-    league_id = league_dict["id"]
-    return league_id
+def get_schedules(league_id, headers):
+    schedule_full = []
+    newer = None
+    while True:
+        schedule = get_one_schedule(league_id, headers, newer)
+        schedule_full.append(schedule)
+        newer = schedule["data"]["schedule"]["pages"]["newer"]
+        if not newer:
+            break
+    return schedule_full
 
 
 def get_leagues():
     headers = get_headers()
     leagues = "Leagues available on lolesports.com are:\n```"
-    json_leagues = get_json(LEAGUES, headers)
-    json_leagues = filter_json(json_leagues, "data", "leagues")
+    json_leagues = requests.get(LEAGUES_ENDPOINT, headers=headers).json()["data"]["leagues"]
+    print(json_leagues)
     for league in json_leagues:
-        print(type(league))
-        print(league)
-        leagues = leagues + league["name"] + "\n"
-    leagues = leagues + "```"
+        leagues += league["name"] + "\n"
+    leagues += "```"
     return leagues
 
 
-def filter_json(json_file, *args):
-    new_json = json_file
-    for arg in args:
-        try:
-            new_json = new_json[arg]
-        except KeyError:
-            print("Couldn't find '{}'. Original json returned.".format(arg))
-            return json_file
-    return new_json
+def get_league(league_name, headers):
+    leagues = requests.get(LEAGUES_ENDPOINT, headers=headers).json()["data"]["leagues"]
+    league_id = None
+    for league in leagues:
+        if league["slug"] == league_name or league["name"] == league_name:
+            league_id = league["id"]
+    return league_id
 
 
-def parse_schedule(jsons, stream=""):
-    schedule, current_tab = "", ""
-    for json_file in jsons:
-        json_schedule = filter_json(json_file, "data", "schedule", "events")
-        for game in json_schedule:
-            parsed_time = time_from_str(game["startTime"], tz="UTC")
-            display = game["blockName"]
-            team1 = game["match"]["teams"][0]["name"]
-            team2 = game["match"]["teams"][1]["name"]
-            bestof = game["match"]["strategy"]["count"]
-            if display != current_tab:
-                schedule = schedule + END + START.format(display, bestof)
-                current_tab = display
-            if bestof == 1:
-                schedule = schedule + MATCH.format(t1=team1, t2=team2, date=parsed_time.cet_date, time=parsed_time.cet_time,
-                                                   timezone="CET", dst=parsed_time.dst, stream=stream, games=BO1_GAMES)
-            elif bestof == 2:
-                schedule = schedule + MATCH.format(t1=team1, t2=team2, date=parsed_time.cet_date, time=parsed_time.cet_time,
-                                                   timezone="CET", dst=parsed_time.dst, stream=stream, games=BO2_GAMES)
-            elif bestof == 3:
-                schedule = schedule + MATCH.format(t1=team1, t2=team2, date=parsed_time.cet_date, time=parsed_time.cet_time,
-                                                   timezone="CET", dst=parsed_time.dst, stream=stream, games=BO3_GAMES)
-            elif bestof == 5:
-                schedule = schedule + MATCH.format(t1=team1, t2=team2, date=parsed_time.cet_date, time=parsed_time.cet_time,
-                                                   timezone="CET", dst=parsed_time.dst, stream=stream, games=BO5_GAMES)
+def parse_schedule(schedule, shownname, stream):
+    output, title = "", ""
+    for page in schedule:
+        page_schedule = page["data"]["schedule"]["events"]
+        for match in page_schedule:
+            if match["type"] != "match":
+                continue
+            start_time = match["startTime"]
+            start_datetime = datetime.strptime(start_time, "%Y-%m-%dT%H:%M:%S%z")
+            pst_object = start_datetime.astimezone(pytz.timezone("PST8PDT"))
+            if pst_object.dst():
+                dst = "spring"
             else:
-                # Todo: Throw an exception or something
-                schedule = schedule + MATCH.format(t1=team1, t2=team2, date=parsed_time.cet_date, time=parsed_time.cet_time,
-                                                   timezone="CET", dst=parsed_time.dst, stream=stream, games=BO1_GAMES)
-    schedule = schedule.replace("{{MatchSchedule/End}}\n", "", 1)
-    schedule = schedule + END
-    return schedule
+                dst = "no"
+            start_date = pst_object.strftime("%Y-%m-%d")
+            start_time = pst_object.strftime("%H:%M")
+            best_of = match["match"]["strategy"]["count"]
+            display = match["blockName"]
+            if display != title:
+                title = display
+                output += END + START.format(title, str(best_of), shownname)
+            team1 = match["match"]["teams"][0]["name"].strip()
+            team2 = match["match"]["teams"][1]["name"].strip()
+            games = ""
+            for gamen in range(best_of):
+                gamen += 1
+                games += GAME.format(gamen)
+            output += MATCH.format(t1=team1, t2=team2, date=start_date, time=start_time, timezone="PST",
+                                   dst=dst, stream=stream, games=games, best_of=str(best_of))
+
+    output = output.replace("{{MatchSchedule/End}}\n\n", "", 1)
+    output += END
+    return output
 
 
-def get_schedule(league_name, stream):
+def run(league_name, shownname, stream):
     headers = get_headers()
     league_id = get_league(league_name, headers)
-    json_schedule = get_json(SCHEDULE.format(league_id), headers)
-    jsons = get_all_jsons(json_schedule, league_id, headers)
-    schedule = parse_schedule(jsons, stream=stream)
-    return schedule
+    schedule = get_schedules(league_id, headers)
+    output = parse_schedule(schedule, shownname, stream)
+    return output
