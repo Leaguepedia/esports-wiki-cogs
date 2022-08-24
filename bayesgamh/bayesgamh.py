@@ -646,7 +646,12 @@ class BayesGAMH(commands.Cog):
             if len(summary['participants'][::5]) == 2:
                 t1, t2 = summary['participants'][::5]
                 teams = (f"{t1['summonerName'].split(' ')[0]} vs {t2['summonerName'].split(' ')[0]}")
-                winner = t1['summonerName'].split(' ')[0] if t1['win'] else t2['summonerName'].split(' ')[0]
+                if t1["win"]:
+                    winner = t1['summonerName'].split(' ')[0]
+                elif t2["win"]:
+                    winner = t2['summonerName'].split(' ')[0]
+                else:
+                    winner = "None"
                 if use_spoiler_tags:
                     winner = spoiler(winner.ljust(30))
         return (f"`{game['platformGameId']}`{status} {self.get_asset_string(game['assets'])}\n"
