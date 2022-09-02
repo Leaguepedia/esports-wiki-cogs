@@ -1,5 +1,5 @@
 from esports_cog_utils.utils import login_if_possible
-from redbot.core import commands
+from redbot.core import commands, checks
 
 
 class CargoCreate(commands.Cog):
@@ -7,8 +7,9 @@ class CargoCreate(commands.Cog):
     
     def __init__(self, bot):
         self.bot = bot
-    
+
     @commands.command(pass_context=True)
+    @checks.mod_or_permissions(manage_guild=True)
     async def cargocreate(self, ctx, wiki, table):
         site = await login_if_possible(ctx, self.bot, wiki)
         await ctx.send('Okay, starting!')

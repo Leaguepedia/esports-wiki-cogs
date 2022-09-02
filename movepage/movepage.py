@@ -1,5 +1,5 @@
 from esports_cog_utils.utils import login_if_possible
-from redbot.core import commands
+from redbot.core import commands, checks
 
 
 class MovePage(commands.Cog):
@@ -8,8 +8,9 @@ class MovePage(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.summary = 'Moving page + associated subpages'
-    
+
     @commands.command()
+    @checks.mod_or_permissions(manage_guild=True)
     async def move(self, ctx, wiki, p1, p2):
         site = await login_if_possible(ctx, self.bot, wiki)
         if site is None:
