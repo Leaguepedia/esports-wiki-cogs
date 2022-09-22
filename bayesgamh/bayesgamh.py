@@ -681,7 +681,7 @@ class BayesGAMH(commands.Cog):
             return []
 
         all_ids = [repr(game['platformGameId'].strip()) for game in games]
-        where = f"RiotPlatformGameId IN ({','.join(all_ids)})"
+        where = f"RiotPlatformGameId IN ({','.join(all_ids)}) AND HasRpgidInput = '1'"
 
         result = site.cargo_client.query(tables="MatchScheduleGame",
                                          fields="RiotPlatformGameId",
