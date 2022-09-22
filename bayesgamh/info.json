@@ -17,7 +17,8 @@
     "tsutils",
     "mwrogue",
     "mwcleric>=0.6.5",
-    "esports-cog-utils"
+    "esports-cog-utils",
+    "aiofiles"
   ],
   "tags": []
 }
