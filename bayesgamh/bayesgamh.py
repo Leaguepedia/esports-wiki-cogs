@@ -641,11 +641,17 @@ class BayesGAMH(commands.Cog):
 
         status = f" ({game['status']})" if game['status'] != "FINISHED" else ""
         teams = winner = 'Unknown'
+
+        tab = "Unknown"
+        block_name = game.get("blockName") or ""
+        sub_block_name = game.get("subBlockName") or ""
+        if block_name:
+            tab = f"{block_name} {sub_block_name}"
         if 'GAMH_SUMMARY' in game['assets']:
             summary = json.loads(await self.api.get_asset(game['platformGameId'], 'GAMH_SUMMARY'))
             if len(summary['participants'][::5]) == 2:
                 t1, t2 = summary['participants'][::5]
-                teams = (f"{t1['summonerName'].split(' ')[0]} vs {t2['summonerName'].split(' ')[0]}")
+                teams = f"{t1['summonerName'].split(' ')[0]} vs {t2['summonerName'].split(' ')[0]}"
                 if t1["win"]:
                     winner = t1['summonerName'].split(' ')[0]
                 elif t2["win"]:
@@ -659,7 +665,8 @@ class BayesGAMH(commands.Cog):
                 f"\t\tTeams: {teams}\n"
                 f"\t\tWinner: {winner}\n"
                 f"\t\tStart Time: {self.parse_date(game['createdAt'])}\n"
-                f"\t\tTags: {', '.join(map(inline, sorted(game['tags'])))}")
+                f"\t\tTags: {', '.join(map(inline, sorted(game['tags'])))}\n"
+                f"\t\tTab: `{tab}`")
 
     @staticmethod
     def get_asset_string(assets: List[AssetType]):
