@@ -186,13 +186,13 @@ class BayesAPIWrapper:
         elif "NULL" in tags or "ALL" in tags:
             raise ValueError("The special tags NULL and ALL must be requested alone.")
 
-        data = await self.get_games(tags=tags, page_size=999,
+        data = await self.get_games(tags=tags, page_size=5000,
                                     from_timestamp=from_timestamp,
                                     to_timestamp=to_timestamp)
-        if data['count'] >= 999:
+        if data['count'] >= 5000:
             page = 1
             while len(data['games']) < data['count']:
-                newpage = await self.get_games(tags=tags, page=page, page_size=999,
+                newpage = await self.get_games(tags=tags, page=page, page_size=5000,
                                                from_timestamp=from_timestamp,
                                                to_timestamp=to_timestamp)
                 data['games'].extend(newpage['games'])

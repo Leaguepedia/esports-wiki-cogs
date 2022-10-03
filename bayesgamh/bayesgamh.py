@@ -61,6 +61,7 @@ class BayesGAMH(commands.Cog):
         self.api = BayesAPIWrapper(bot, self.session)
 
         self._loop = bot.loop.create_task(self.do_loop())
+        self.games_cache = None
         self.subscription_lock = asyncio.Lock()
 
         gadmin: Any = self.bot.get_cog("GlobalAdmin")
@@ -85,8 +86,9 @@ class BayesGAMH(commands.Cog):
 
     async def do_loop(self) -> NoReturn:
         try:
-            async for _ in repeating_timer(60):
+            async for _ in repeating_timer(10):
                 try:
+                    self.games_cache = await self.api.get_all_games()
                     await self.do_auto_channel()
                     await self.do_subscriptions()
                 except asyncio.CancelledError:
@@ -104,7 +106,7 @@ class BayesGAMH(commands.Cog):
                     tags_to_uid[sub].add(u_id)
 
             changed_games = []
-            for game in await self.api.get_all_games():
+            for game in self.games_cache:
                 if seen.get(game['platformGameId'], -1) != len(game['assets']):  # Different number of assets
                     changed_games.append(game)
                     
@@ -130,7 +132,7 @@ class BayesGAMH(commands.Cog):
 
     async def do_auto_channel(self) -> None:
         async with self.config.autochannel_seen() as seen:
-            changed_games = sorted((game for game in await self.api.get_all_games()
+            changed_games = sorted((game for game in self.games_cache
                                     if seen.get(game['platformGameId'], -1) != len(game['assets'])),
                                    key=lambda g: isoparse(g['createdAt']))
             msg = [await self.format_game_long(game, None) for game in changed_games if 'GAMH_DETAILS' in game['assets']]
@@ -642,11 +644,11 @@ class BayesGAMH(commands.Cog):
         status = f" ({game['status']})" if game['status'] != "FINISHED" else ""
         teams = winner = 'Unknown'
 
-        tab = "Unknown"
+        block = "Unknown"
         block_name = game.get("blockName") or ""
         sub_block_name = game.get("subBlockName") or ""
         if block_name:
-            tab = f"{block_name} {sub_block_name}"
+            block = f"{block_name} {sub_block_name}"
         if 'GAMH_SUMMARY' in game['assets']:
             summary = json.loads(await self.api.get_asset(game['platformGameId'], 'GAMH_SUMMARY'))
             if len(summary['participants'][::5]) == 2:
@@ -666,7 +668,7 @@ class BayesGAMH(commands.Cog):
                 f"\t\tWinner: {winner}\n"
                 f"\t\tStart Time: {self.parse_date(game['createdAt'])}\n"
                 f"\t\tTags: {', '.join(map(inline, sorted(game['tags'])))}\n"
-                f"\t\tTab: `{tab}`")
+                f"\t\tBlock: `{block}`")
 
     @staticmethod
     def get_asset_string(assets: List[AssetType]):
