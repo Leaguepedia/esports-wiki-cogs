@@ -631,7 +631,7 @@ class BayesGAMH(commands.Cog):
     async def format_game(self, game: Game, user: Optional[User]) -> str:
         status = f" ({game['status']})" if game['status'] != "FINISHED" else ""
 
-        return (f"`{game['platformGameId']}`{status} {self.get_asset_string(game['assets'])}\n"
+        return (f"`{game['platformGameId']}` {status} {self.get_asset_string(game['assets'])}\n"
                 f"\t\tName: {game['name']}\n"
                 f"\t\tStart Time: {self.parse_date(game['createdAt'])}\n"
                 f"\t\tTags: {', '.join(map(inline, sorted(game['tags'])))}")
@@ -662,7 +662,7 @@ class BayesGAMH(commands.Cog):
                     winner = "None"
                 if use_spoiler_tags:
                     winner = spoiler(winner.ljust(30))
-        return (f"`{game['platformGameId']}`{status} {self.get_asset_string(game['assets'])}\n"
+        return (f"`{game['platformGameId']}` {status} {self.get_asset_string(game['assets'])}\n"
                 f"\t\tName: {game['name']}\n"
                 f"\t\tTeams: {teams}\n"
                 f"\t\tWinner: {winner}\n"
