@@ -10,10 +10,10 @@ def tl_has(tl, param):
 
 
 class MhToWinnersRunner(object):
-    def __init__(self, site: EsportsClient, title_list: list):
+    def __init__(self, site: EsportsClient, title_list: str):
         self.site = site
         self.summary = 'Discover sides & winners from the MH & populate in the row'
-        self.title_list = title_list
+        self.title_list = [f'"{self.site.cache.get_target(title)}"' for title in title_list]
 
     def run(self):
         pages_to_edit = self.site.cargo_client.query(
