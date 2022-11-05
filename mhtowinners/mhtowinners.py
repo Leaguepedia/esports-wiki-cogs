@@ -6,6 +6,7 @@ from tsutils.user_interaction import StatusManager
 
 from mhtowinners.sbtowinners_main import SbToWinnersRunner
 from mhtowinners.vodstosb_main import VodsToSbRunner
+from mhtowinners.mhtowinners_main import MhToWinnersRunner
 
 
 class MhToWinners(commands.Cog):
@@ -18,6 +19,11 @@ class MhToWinners(commands.Cog):
     async def sbtowinners(self, ctx, *, title_list=""):
         title_list = [title.strip() for title in title_list.split(",")]
         await self._do_the_thing(ctx, SbToWinnersRunner, title_list)
+
+    @commands.command(pass_context=True)
+    async def mhtowinners(self, ctx, *, title_list):
+        title_list = [f"'{title.strip()}'" for title in title_list.split(",")]
+        await self._do_the_thing(ctx, MhToWinnersRunner, title_list)
 
     async def _do_the_thing(self, ctx, the_thing, *args):
         await ctx.send('Okay, starting now!')
