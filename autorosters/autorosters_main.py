@@ -18,10 +18,11 @@ class AutoRostersRunner(TaskRunner):
         "Jungle": 2,
         "Mid": 3,
         "Bot": 4,
-        "Support": 5
+        "Support": 5,
+        "Coach": 6
     }
 
-    def __init__(self, site: EsportsClient, overview_page: str):
+    def __init__(self, site: EsportsClient, overview_page: str, query_coaches: bool = False):
         super().__init__()
         self.site = site
         self.overview_page = overview_page
@@ -29,6 +30,8 @@ class AutoRostersRunner(TaskRunner):
         self.match_data = {}
         self.alt_teamnames = {}
         self.rosters_data = {}
+        self.coaches = {}
+        self.query_coaches = query_coaches
 
     def run(self):
         self.get_tabs()
@@ -36,7 +39,9 @@ class AutoRostersRunner(TaskRunner):
         scoreboard_data = self.query_scoreboard_data(matchschedule_data)
         self.process_matchschedule_data(matchschedule_data)
         self.process_scoreboard_data(scoreboard_data)
+        self.query_tournament_coaches()
         self.initialize_roster_data()
+        self.add_coaches_to_roster_data()
         players_data = self.get_player_data()
         self.process_game_data()
         output = self.make_output(players_data)
@@ -124,6 +129,17 @@ class AutoRostersRunner(TaskRunner):
                                                             "team": scoreboard["Team"],
                                                             "link": player_page}
 
+    def query_tournament_coaches(self):
+        if not self.query_coaches:
+            return
+        tournament_coaches = self.site.cargo_client.query(
+            tables="TournamentPlayers=TP",
+            fields="TP.Player, TP.Team",
+            where=f"TP.OverviewPage = '{self.overview_page}' AND TP.Role = 'Coach' AND TP.Player IS NOT NULL",
+            order_by="TP.N_PlayerInTeam ASC"
+        )
+        self.coaches = [{"link": coach["Player"], "team": coach["Team"]} for coach in tournament_coaches]
+
     def get_players_roles_data(self):
         for team, team_data in self.rosters_data.items():
             for player, player_data in team_data["players"].items():
@@ -154,6 +170,13 @@ class AutoRostersRunner(TaskRunner):
                             team_players[player["link"]]["roles"].append(player["role"])
         self.get_players_roles_data()
 
+    def add_coaches_to_roster_data(self):
+        for coach in self.coaches:
+            team = self.alt_teamnames[coach["team"]]
+            self.rosters_data[team]["players"][coach["link"]] = {"roles": ["Coach"],
+                                                                 "roles_data": {"roles": 1, "role1": "Coach"},
+                                                                 "games_by_role": {}}
+
     @staticmethod
     def get_where_player_data(rosters_data):
         where = "PR.AllName IN ({})"
@@ -180,9 +203,11 @@ class AutoRostersRunner(TaskRunner):
 
         for player_data in response:
             player_name = player_data["name"].replace("&amp;nbsp;", " ") if player_data["name"] is not None else ""
-            players_data[player_data["Player"]] = [{"flag": player_data["NP"] or player_data["Country"] or ""},
-                                                   {"res": player_data["Residency"]} or "",
-                                                   {"player": player_data["Player"]}, {"name": player_name}]
+            players_data[player_data["Player"].capitalize()] = [{"flag": player_data["NP"] or
+                                                                player_data["Country"] or ""},
+                                                                {"res": player_data["Residency"]} or "",
+                                                                {"player": player_data["Player"]},
+                                                                {"name": player_name}]
         return players_data
 
     def add_team_vs(self, current_teams):
@@ -292,15 +317,24 @@ class AutoRostersRunner(TaskRunner):
             players_text = ""
             if not sorted_data["players"][team]:
                 continue
+            team_has_ingame_players = False
+            for player_data in self.rosters_data[team]["players"].values():
+                if all(role == "Coach" for role in player_data["roles"]):
+                    continue
+                team_has_ingame_players = True
+            if not team_has_ingame_players:
+                continue
             for player in sorted_data["players"][team]:
                 player = player[0]
                 game_rd_player = self.rosters_data[team]["players"][player]
-                if players_data.get(player):
-                    player_data = self.concat_args(players_data[player])
+                if players_data.get(player.capitalize()):
+                    player_data = self.concat_args(players_data[player.capitalize()])
                 else:
                     player_data = self.concat_args([{"flag": ""}, {"res": ""}, {"player": player}, {"name": ""}])
                 player_roles_data = self.concat_args(game_rd_player["roles_data"])
                 player_games_by_role = self.concat_args(game_rd_player["games_by_role"])
+                if not game_rd_player["games_by_role"]:
+                    player_games_by_role = "|r1="
                 players_text += self.PLAYER_TEXT.format(player_data, player_roles_data, player_games_by_role)
             teamsvs = self.concat_args(self.rosters_data[team]["teamsvs"])
             output += self.TEAM_TEXT.format(team, teamsvs, players_text)
@@ -316,4 +350,4 @@ class AutoRostersRunner(TaskRunner):
 if __name__ == '__main__':
     credentials = AuthCredentials(user_file='bot')
     lol_site = EsportsClient('lol', credentials=credentials)
-    AutoRostersRunner(lol_site, "Hitpoint Masters/2022 Season/Summer Season").run()
+    AutoRostersRunner(lol_site, "Claro Stars League/2022 Season/Stars Cup", query_coaches=True).run()
