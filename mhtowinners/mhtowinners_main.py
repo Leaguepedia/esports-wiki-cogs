@@ -1,4 +1,4 @@
-from leaguepedia_scoreboard_parser.components import get_and_cast_game
+from leaguepedia_sb_parser.components import get_and_cast_game
 import mwparserfromhell
 from mwcleric.errors import RetriedLoginAndStillFailed
 from mwrogue.esports_client import EsportsClient
