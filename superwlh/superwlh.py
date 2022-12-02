@@ -33,6 +33,7 @@ class SuperWLH(commands.Cog):
 
     @commands.command(pass_context=True)
     async def superwlh(self, ctx, *, player):
+        is_message_sent = False
         for table, key_field in self.CARGO_TABLES.items():
             response = await self.query(table, key_field, player)
             if response:
@@ -41,5 +42,6 @@ class SuperWLH(commands.Cog):
                     message.append(f"Found an entry in table `{table}`, stored from `{item['Page']}`")
                 for page in pagify('\n'.join(message)):
                     await ctx.send(page)
-            else:
-                await ctx.send("No entries found!")
+                    is_message_sent = True
+        if not is_message_sent:
+            await ctx.send("No entries were found!")
