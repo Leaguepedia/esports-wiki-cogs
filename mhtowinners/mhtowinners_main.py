@@ -1,4 +1,4 @@
-from leaguepedia_sb_parser.components import get_and_cast_game
+from leaguepedia_sb_parser.components import fetch_game
 import mwparserfromhell
 from mwcleric.errors import RetriedLoginAndStillFailed
 from mwrogue.esports_client import EsportsClient
@@ -57,7 +57,7 @@ class MhToWinnersRunner(object):
                 template.get('riot_platform_game_id').value.strip()
             )
             try:
-                game = get_and_cast_game.get_game(platform_game_id)
+                game = fetch_game.get_bayes_game(platform_game_id)
             except Exception as e:
                 self.site.log_error_script(overview_page, e)
                 continue
