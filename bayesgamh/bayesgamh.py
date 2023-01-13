@@ -653,13 +653,17 @@ class BayesGAMH(commands.Cog):
             summary = json.loads(await self.api.get_asset(game['platformGameId'], 'GAMH_SUMMARY'))
             if len(summary['participants'][::5]) == 2:
                 t1, t2 = summary['participants'][::5]
-                teams = f"{t1['summonerName'].split(' ')[0]} vs {t2['summonerName'].split(' ')[0]}"
+                team1_short = t1['summonerName'].split(' ')[0]
+                team2_short = t2['summonerName'].split(' ')[0]
                 if t1["win"]:
-                    winner = t1['summonerName'].split(' ')[0]
+                    winner = team1_short
+                    team1_short = f"**{team1_short}**"
                 elif t2["win"]:
-                    winner = t2['summonerName'].split(' ')[0]
+                    winner = team2_short
+                    team2_short = f"**{team2_short}**"
                 else:
                     winner = "None"
+                teams = f"{team1_short} vs {team2_short}"
                 if use_spoiler_tags:
                     winner = spoiler(winner.ljust(30))
         return (f"`{game['platformGameId']}`{status} {self.get_asset_string(game['assets'])}\n"
