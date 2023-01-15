@@ -631,7 +631,7 @@ class BayesGAMH(commands.Cog):
     async def format_game(self, game: Game, user: Optional[User]) -> str:
         status = f" ({game['status']})" if game['status'] != "FINISHED" else ""
 
-        return (f"`{game['platformGameId']}`{status} {self.get_asset_string(game['assets'])}\n"
+        return (f"`{game['platformGameId']}`{status} {self.get_ready_to_parse_string(game['assets'])}\n"
                 f"\t\tName: {game['name']}\n"
                 f"\t\tStart Time: {self.parse_date(game['createdAt'])}\n"
                 f"\t\tTags: {', '.join(map(inline, sorted(game['tags'])))}")
@@ -641,8 +641,9 @@ class BayesGAMH(commands.Cog):
         use_spoiler_tags = any(data.get('spoiler') for sub, data in subs.items() if sub in game['tags'])
         use_spoiler_tags = use_spoiler_tags or subs.get('ALL', {}).get('spoiler')
 
-        status = f" ({game['status']})" if game['status'] != "FINISHED" else ""
+        status = f" ({game['status']}) " if game['status'] != "FINISHED" else ""
         teams = winner = 'Unknown'
+        has_winner = False
 
         block = "Unknown"
         block_name = game.get("blockName") or ""
@@ -657,16 +658,18 @@ class BayesGAMH(commands.Cog):
                 team2_short = t2['summonerName'].split(' ')[0]
                 if t1["win"]:
                     winner = team1_short
+                    has_winner = True
                     team1_short = f"**{team1_short}**"
                 elif t2["win"]:
                     winner = team2_short
+                    has_winner = True
                     team2_short = f"**{team2_short}**"
                 else:
                     winner = "None"
                 teams = f"{team1_short} vs {team2_short}"
                 if use_spoiler_tags:
                     winner = spoiler(winner.ljust(30))
-        return (f"`{game['platformGameId']}`{status} {self.get_asset_string(game['assets'])}\n"
+        return (f"`{game['platformGameId']}`{status}{self.get_ready_to_parse_string(game['assets'], has_winner)}\n"
                 f"\t\tName: {game['name']}\n"
                 f"\t\tTeams: {teams}\n"
                 f"\t\tWinner: {winner}\n"
@@ -675,7 +678,9 @@ class BayesGAMH(commands.Cog):
                 f"\t\tBlock: `{block}`")
 
     @staticmethod
-    def get_asset_string(assets: List[AssetType]):
+    def get_ready_to_parse_string(assets: List[AssetType], has_winner: bool = True):
+        if not has_winner:
+            return cancellation_message("Not ready to parse")
         if 'GAMH_SUMMARY' in assets and 'GAMH_DETAILS' in assets:
             return confirmation_message("Ready to parse")
         elif 'GAMH_SUMMARY' in assets:
