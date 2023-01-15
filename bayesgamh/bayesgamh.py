@@ -659,11 +659,13 @@ class BayesGAMH(commands.Cog):
                 if t1["win"]:
                     winner = team1_short
                     has_winner = True
-                    team1_short = f"**{team1_short}**"
+                    if not use_spoiler_tags:
+                        team1_short = f"**{team1_short}**"
                 elif t2["win"]:
                     winner = team2_short
                     has_winner = True
-                    team2_short = f"**{team2_short}**"
+                    if not use_spoiler_tags:
+                        team2_short = f"**{team2_short}**"
                 else:
                     winner = "None"
                 teams = f"{team1_short} vs {team2_short}"
