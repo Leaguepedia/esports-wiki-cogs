@@ -6,19 +6,6 @@ from redbot.core.bot import Red
 from .autorosters_main import AutoRostersRunner
 
 
-async def is_lol_staff(ctx) -> bool:
-    staff_role = None
-    if not ctx.guild:
-        raise commands.UserFeedbackCheckFailure("You must be in a server to run this command!")
-    for role in ctx.message.guild.roles:
-        if role.name == "LoL-Staff":
-            staff_role = role
-            break
-    if staff_role not in ctx.author.roles:
-        raise commands.UserFeedbackCheckFailure("You don't have enough permissions to run this command!")
-    return True
-
-
 class AutoRosters(commands.Cog):
     """Automatically generates team rosters for Leaguepedia, using scoreboard data"""
     
@@ -52,13 +39,11 @@ class AutoRosters(commands.Cog):
         await runner.send_warnings(ctx)
     
     @commands.command(pass_context=True)
-    @commands.check(is_lol_staff)
     async def autorosters(self, ctx, *, overview_page):
         """Generate team rosters for the specified tournament"""
         await self.run(ctx, overview_page)
 
     @commands.command(pass_context=True)
-    @commands.check(is_lol_staff)
     async def autorostersc(self, ctx, *, overview_page):
         """Generate team rosters for the specified tournament querying for team coaches"""
         await self.run(ctx, overview_page, query_coaches=True)
