@@ -272,7 +272,7 @@ class AutoRostersRunner(TaskRunner):
                 continue
             for player in team_data["players"].values():
                 for role, role_data in player["games_by_role"].items():
-                    player["games_by_role"][role] = role_data[:-1]
+                    player["games_by_role"][role] = role_data.rstrip(",")
 
     def get_order(self):
         sorted_teams = sorted(self.rosters_data.keys(), key=lambda x: x.lower())
@@ -350,4 +350,4 @@ class AutoRostersRunner(TaskRunner):
 if __name__ == '__main__':
     credentials = AuthCredentials(user_file='bot')
     lol_site = EsportsClient('lol', credentials=credentials)
-    AutoRostersRunner(lol_site, "Claro Stars League/2022 Season/Stars Cup", query_coaches=True).run()
+    AutoRostersRunner(lol_site, "Volcano League/2023 Season/Opening Season").run()
