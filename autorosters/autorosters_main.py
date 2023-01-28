@@ -231,7 +231,7 @@ class AutoRostersRunner(TaskRunner):
                         continue
                     for player in self.rosters_data[team]["players"].values():
                         for role in player["games_by_role"].keys():
-                            player["games_by_role"][role] += f"{'n' * math.ceil(int(match['best_of']) / 2)},"
+                            player["games_by_role"][role] += f"{'n' * math.ceil((int(match['best_of']) + 1) / 2)},"
                 continue
             for game in match["games"].values():
                 if game["msg_data"]["MSGFF"] is not None:
