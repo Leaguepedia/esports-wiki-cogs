@@ -1,13 +1,13 @@
-# wikiedit-cogs
+# esports-wiki-cogs 
 RED cogs for editing esports wikis
 
 ## Setup
 Install it like a normal cog, with:
 ```
-!repo add river https://github.com/RheingoldRiver/river-wiki-cogs
+!repo add ewc https://github.com/arbolitoloco1/esports-wiki-cogs
 ```
 
-Then update with `!repo update river`
+Then update with `!repo update ewc`
 
 To setup bot password, send the following IN DM WITH THE BOT!!! NOT on a server!
 
