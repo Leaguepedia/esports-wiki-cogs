@@ -6,7 +6,7 @@ from redbot.core.utils.chat_formatting import pagify
 
 
 class SuperWLH(commands.Cog):
-    """Queries the wiki to check for duplicated player entries"""
+    """Queries the wiki to find database entries for a given player ID"""
 
     CARGO_TABLES = {
         "Players": "OverviewPage",
@@ -49,4 +49,5 @@ class SuperWLH(commands.Cog):
     @commands.hybrid_command(name="superwlh")
     @app_commands.describe(player="The ID of the player you are looking entries for")
     async def superwlh(self, ctx: commands.Context, *, player: str):
+        """Queries the wiki to find database entries for a given player ID"""
         await self.run(player, ctx)
