@@ -1,7 +1,8 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 import pytz
 import requests
-from redbot.core import commands
+from redbot.core.bot import Red
+from redbot.core import commands, app_commands
 from redbot.core.utils.chat_formatting import text_to_file
 import discord
 
@@ -23,21 +24,27 @@ ERROR_MESSAGE = "An error has occured. {} might not exist. If your input contain
 
 
 class MatchScheduleParser(commands.Cog):
-
-    def __init__(self, bot):
+    def __init__(self, bot: Red, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.bot = bot
 
-    @commands.group()
+    @commands.hybrid_group()
     async def lolesportsparser(self, ctx):
         """Commands to parse lolesports match schedules"""
 
-    @lolesportsparser.command()
-    async def parse(self, ctx, tournament, shownname="", stream=""):
+    @lolesportsparser.command(name="parse")
+    @app_commands.describe(tournament="The name of the tournament",
+                           shownname="The name that will be displayed in the wiki's schedule",
+                           stream="The stream url for the tournament",
+                           from_date="Only include matches starting after this date. yyyy-mm-dd format.")
+    async def parse(self, ctx, tournament: str, shownname: str = "", stream: str = "", from_date: str = None):
+        """Returns the schedule for a given tournament ready to paste in the wiki"""
+        await ctx.send("Okay, starting!")
         try:
-            schedule = run(tournament, shownname, stream)
+            schedule = run(tournament, shownname, stream, from_date)
         except TypeError:
             try:
-                schedule = get_schedule(tournament.upper(), shownname, stream)
+                schedule = run(tournament.upper(), shownname, stream, from_date)
             except TypeError:
                 await ctx.send(ERROR_MESSAGE.format(tournament))
                 return
@@ -45,8 +52,9 @@ class MatchScheduleParser(commands.Cog):
         if not isinstance(ctx.channel, discord.channel.DMChannel):
             await ctx.send("Check your DMs!")
 
-    @lolesportsparser.command()
+    @lolesportsparser.command(name="list")
     async def list(self, ctx):
+        """Lists all the available tournaments"""
         leagues = get_leagues()
         await ctx.send(leagues)
 
@@ -81,7 +89,6 @@ def get_leagues():
     headers = get_headers()
     leagues = "Leagues available on lolesports.com are:\n```"
     json_leagues = requests.get(LEAGUES_ENDPOINT, headers=headers).json()["data"]["leagues"]
-    print(json_leagues)
     for league in json_leagues:
         leagues += league["name"] + "\n"
     leagues += "```"
@@ -97,7 +104,7 @@ def get_league(league_name, headers):
     return league_id
 
 
-def parse_schedule(schedule, shownname, stream):
+def parse_schedule(schedule, shownname, stream, from_date):
     output, title = "", ""
     for page in schedule:
         page_schedule = page["data"]["schedule"]["events"]
@@ -107,6 +114,8 @@ def parse_schedule(schedule, shownname, stream):
             start_time = match["startTime"]
             start_datetime = datetime.strptime(start_time, "%Y-%m-%dT%H:%M:%S%z")
             pst_object = start_datetime.astimezone(pytz.timezone("PST8PDT"))
+            if from_date and pytz.timezone("PST8PDT").localize(datetime.strptime(from_date, "%Y-%m-%d")) > pst_object:
+                continue
             if pst_object.dst():
                 dst = "spring"
             else:
@@ -132,9 +141,9 @@ def parse_schedule(schedule, shownname, stream):
     return output
 
 
-def run(league_name, shownname, stream):
+def run(league_name, shownname, stream, from_date):
     headers = get_headers()
     league_id = get_league(league_name, headers)
     schedule = get_schedules(league_id, headers)
-    output = parse_schedule(schedule, shownname, stream)
+    output = parse_schedule(schedule, shownname, stream, from_date)
     return output
