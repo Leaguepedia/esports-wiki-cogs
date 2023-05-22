@@ -40,11 +40,11 @@ class AutoRosters(commands.Cog):
     @commands.hybrid_command(name="autorosters", pass_context=True)
     @app_commands.describe(overview_page="The overview page of the tournament")
     async def autorosters(self, ctx, *, overview_page: str):
-        """Generate team rosters for the specified tournament"""
+        """Generates team rosters for the specified tournament"""
         await self.run(ctx, overview_page)
 
     @commands.hybrid_command(name="autorostersc", pass_context=True)
     @app_commands.describe(overview_page="The overview page of the tournament")
     async def autorostersc(self, ctx, *, overview_page: str):
-        """Generate team rosters for the specified tournament querying for team coaches"""
+        """Generates team rosters for the specified tournament querying for team coaches"""
         await self.run(ctx, overview_page, query_coaches=True)
