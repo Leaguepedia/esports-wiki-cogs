@@ -1,27 +1,31 @@
 from esports_cog_utils.utils import get_credentials
 from mwrogue.esports_client import EsportsClient
 from requests import ReadTimeout
-from redbot.core import commands
+from redbot.core import commands, app_commands
 from tsutils.user_interaction import StatusManager
 
 from mhtowinners.sbtowinners_main import SbToWinnersRunner
-from mhtowinners.vodstosb_main import VodsToSbRunner
 from mhtowinners.mhtowinners_main import MhToWinnersRunner
 
 
 class MhToWinners(commands.Cog):
-    """Commands to update MatchSchedule & Scoreboards based on each other's data"""
+    """Commands to update MatchSchedule based on data from Scoreboards and Match History"""
 
-    def __init__(self, bot):
+    def __init__(self, bot, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.bot = bot
 
-    @commands.command(pass_context=True)
-    async def sbtowinners(self, ctx, *, title_list=""):
+    @commands.hybrid_command(name="sbtowinners", pass_context=True)
+    @app_commands.describe(title_list="A comma separated list of tournament overview pages to update")
+    async def sbtowinners(self, ctx, *, title_list: str = ""):
+        """Updates MatchSchedule using Scoreboard data"""
         title_list = [title.strip() for title in title_list.split(",")]
         await self._do_the_thing(ctx, SbToWinnersRunner, title_list)
 
-    @commands.command(pass_context=True)
-    async def mhtowinners(self, ctx, *, title_list):
+    @commands.hybrid_command(name="mhtowinners", pass_context=True)
+    @app_commands.describe(title_list="A comma separated list of tournament overview pages to update")
+    async def mhtowinners(self, ctx, *, title_list: str):
+        """Updates MatchSchedule using match history data"""
         title_list = [title.strip() for title in title_list.split(",")]
         await self._do_the_thing(ctx, MhToWinnersRunner, title_list)
 
