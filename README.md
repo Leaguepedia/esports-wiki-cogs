@@ -1,4 +1,4 @@
-# wikiedit-cogs
+# esports-wiki-cogs 
 RED cogs for editing esports wikis
 
 ## Setup
