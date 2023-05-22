@@ -1,6 +1,6 @@
 from mwrogue.esports_client import EsportsClient
 from esports_cog_utils import utils
-from redbot.core import commands
+from redbot.core import commands, app_commands
 from redbot.core.bot import Red
 
 from .autorosters_main import AutoRostersRunner
@@ -38,12 +38,14 @@ class AutoRosters(commands.Cog):
         await ctx.send(f'Here is where you should copy it: <{rosters_page}>')
         await runner.send_warnings(ctx)
     
-    @commands.command(pass_context=True)
-    async def autorosters(self, ctx, *, overview_page):
+    @commands.hybrid_command(name="autorosters", pass_context=True)
+    @app_commands.describe(overview_page="The overview page of the tournament")
+    async def autorosters(self, ctx, *, overview_page: str):
         """Generate team rosters for the specified tournament"""
         await self.run(ctx, overview_page)
 
-    @commands.command(pass_context=True)
-    async def autorostersc(self, ctx, *, overview_page):
+    @commands.hybrid_command(name="autorostersc", pass_context=True)
+    @app_commands.describe(overview_page="The overview page of the tournament")
+    async def autorostersc(self, ctx, *, overview_page: str):
         """Generate team rosters for the specified tournament querying for team coaches"""
         await self.run(ctx, overview_page, query_coaches=True)

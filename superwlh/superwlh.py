@@ -1,5 +1,6 @@
+import discord
 from mwrogue.esports_client import EsportsClient
-from redbot.core import commands
+from redbot.core import commands, app_commands
 from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import pagify
 
@@ -31,8 +32,7 @@ class SuperWLH(commands.Cog):
             group_by="T._pageName"
         )
 
-    @commands.command(pass_context=True)
-    async def superwlh(self, ctx, *, player):
+    async def run(self, player, ctx):
         is_message_sent = False
         for table, key_field in self.CARGO_TABLES.items():
             response = await self.query(table, key_field, player)
@@ -45,3 +45,8 @@ class SuperWLH(commands.Cog):
                     is_message_sent = True
         if not is_message_sent:
             await ctx.send("No entries were found!")
+
+    @commands.hybrid_command(name="superwlh")
+    @app_commands.describe(player="The ID of the player you are looking entries for")
+    async def superwlh(self, ctx: commands.Context, *, player: str):
+        await self.run(player, ctx)
