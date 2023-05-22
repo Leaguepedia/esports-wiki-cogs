@@ -200,26 +200,33 @@ class BayesGAMH(commands.Cog):
 
         if tag is not None:
             for u_id, data in (await self.config.all_users()).items():
-                if (user := self.bot.get_user(u_id)) and tag in data['allowed_tags']:
+                if tag in data['allowed_tags']:
+                    if user := self.bot.get_user(u_id):
+                        user = user.name if names else user.mention
+                    else:
+                        user = f"`{u_id}`"
                     users.append({'user': user, 'date': data['allowed_tags'][tag].get('date', 0)})
 
             if not users:
                 return await ctx.send("No users have been assigned this tag.")
             users.sort(key=lambda d: d['date'])
-            for page in pagify('\n'.join(f"{d['user'].name if names else d['user'].mention}"
+            for page in pagify('\n'.join(f"{d['user']}"
                                          f" {datetime.fromtimestamp((d['date'])).strftime('%Y %b %-d')}"
                                          for d in users)):
                 await ctx.send(page, allowed_mentions=discord.AllowedMentions(users=False))
         else:
             for u_id, data in (await self.config.all_users()).items():
-                if (user := self.bot.get_user(u_id)):
-                    for tag, tdata in data.get('allowed_tags', {}).items():
-                        users.append({'user': user, 'tag': tag, 'date': tdata.get('date', 0)})
+                if user := self.bot.get_user(u_id):
+                    user = user.name if names else user.mention
+                else:
+                    user = f"`{u_id}`"
+                for tag, tdata in data.get('allowed_tags', {}).items():
+                    users.append({'user': user, 'tag': tag, 'date': tdata.get('date', 0)})
 
             if not users:
                 return await ctx.send("No users have been assigned any tag.")
-            users.sort(key=lambda d: (d['user'].mention, d['date']))
-            for page in pagify('\n'.join(f"{d['user'].name if names else d['user'].mention} `{d['tag']}`"
+            users.sort(key=lambda d: (str(d['user']), d['date']))
+            for page in pagify('\n'.join(f"{d['user']} `{d['tag']}`"
                                          f" {datetime.fromtimestamp((d['date'])).strftime('%Y %b %-d')}"
                                          for d in users)):
                 await ctx.send(page, allowed_mentions=discord.AllowedMentions(users=False))
