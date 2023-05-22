@@ -49,7 +49,7 @@ class MatchScheduleParser(commands.Cog):
                 await ctx.send(ERROR_MESSAGE.format(tournament))
                 return
         await ctx.author.send(file=text_to_file(schedule, filename="matchschedule.txt"))
-        if not isinstance(ctx.channel, discord.channel.DMChannel):
+        if not isinstance(ctx.channel, (discord.channel.DMChannel, discord.channel.PartialMessageable)):
             await ctx.send("Check your DMs!")
 
     @lolesportsparser.command(name="list")
