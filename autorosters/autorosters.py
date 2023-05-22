@@ -33,9 +33,8 @@ class AutoRosters(commands.Cog):
             done_message += " **Remember to complete the coaches' fields!**"
         else:
             done_message += " **Remember the generated content has no coaches!**"
-        await ctx.send(done_message)
-        await ctx.send(f'Here is the sandbox page with the new content: <{sandbox_page}>')
-        await ctx.send(f'Here is where you should copy it: <{rosters_page}>')
+        await ctx.send(f"{done_message}\nHere is the sandbox page with the new content: <{sandbox_page}>\n"
+                       f"Here is where you should copy it: <{rosters_page}>")
         await runner.send_warnings(ctx)
     
     @commands.hybrid_command(name="autorosters", pass_context=True)
