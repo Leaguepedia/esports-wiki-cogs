@@ -106,7 +106,7 @@ class BayesGAMH(commands.Cog):
                     tags_to_uid[sub].add(u_id)
 
             changed_games = []
-            for game in self.games_cache:
+            for game in self.games_cache or await self.api.get_all_games():
                 if seen.get(game['platformGameId'], -1) != len(game['assets']):  # Different number of assets
                     changed_games.append(game)
                     
@@ -659,7 +659,7 @@ class BayesGAMH(commands.Cog):
             block = f"{block_name} {sub_block_name}"
         if 'GAMH_SUMMARY' in game['assets']:
             summary = json.loads(await self.api.get_asset(game['platformGameId'], 'GAMH_SUMMARY'))
-            if len(summary['participants'][::5]) == 2:
+            if "participants" in summary and len(summary['participants'][::5]) == 2:
                 t1, t2 = summary['participants'][::5]
                 team1_short = t1['summonerName'].split(' ')[0]
                 team2_short = t2['summonerName'].split(' ')[0]
