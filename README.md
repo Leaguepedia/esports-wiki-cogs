@@ -4,7 +4,7 @@ RED cogs for editing esports wikis
 ## Setup
 Install it like a normal cog, with:
 ```
-!repo add ewc https://github.com/arbolitoloco1/esports-wiki-cogs
+!repo add ewc https://github.com/Leaguepedia/esports-wiki-cogs
 ```
 
 Then update with `!repo update ewc`
