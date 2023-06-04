@@ -1,8 +1,10 @@
-from leaguepedia_sb_parser.components import fetch_game
 import mwparserfromhell
 from mwcleric.errors import RetriedLoginAndStillFailed
 from mwrogue.esports_client import EsportsClient
 from lol_dto.classes.game import LolGameTeam
+
+import riot_transmute
+from bayes_lol_client import BayesEMH
 
 
 def tl_has(tl, param):
@@ -13,6 +15,7 @@ class MhToWinnersRunner(object):
     def __init__(self, site: EsportsClient, title_list: list):
         self.site = site
         self.summary = 'Discover sides & winners from the MH & populate in the row'
+        self.emh = BayesEMH()
         self.title_list = [f'"{self.site.cache.get_target(title)}"' for title in title_list]
 
     def run(self):
@@ -57,7 +60,12 @@ class MhToWinnersRunner(object):
                 template.get('riot_platform_game_id').value.strip()
             )
             try:
-                game = fetch_game.get_bayes_game(platform_game_id)
+                summary, details = self.emh.get_game_data(platform_game_id)
+                game_dto_summary = riot_transmute.v5.match_to_game(summary)
+                game_dto_details = riot_transmute.v5.match_timeline_to_game(details)
+                game = riot_transmute.merge_games_from_riot_match_and_timeline(
+                    game_dto_summary, game_dto_details
+                )
             except Exception as e:
                 self.site.log_error_script(overview_page, e)
                 continue

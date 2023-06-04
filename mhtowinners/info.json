@@ -1,4 +1,16 @@
 {
   "author": ["RheingoldRiver"],
-  "name": "MhToWinners"
+  "name": "MhToWinners",
+  "requirements": [
+    "requests",
+    "mwrogue",
+    "esports-cog-utils",
+    "tsutils",
+    "mwcleric",
+    "bayes_lol_client",
+    "riot-transmute",
+    "lol-dto",
+    "mwparserfromhell",
+    "mwclient"
+  ]
 }
