@@ -1,4 +1,3 @@
-import discord
 from mwrogue.esports_client import EsportsClient
 from redbot.core import commands, app_commands
 from redbot.core.bot import Red

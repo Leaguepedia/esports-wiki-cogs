@@ -1,5 +1,6 @@
 {
   "author": ["ArbolitoLoco#1948"],
   "name": "Super WLH",
-  "description": "Queries the wiki to check for duplicated player entries"
+  "description": "Queries the wiki to check for duplicated player entries",
+  "requirements": ["mwrogue"]
 }
