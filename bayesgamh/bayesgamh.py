@@ -353,6 +353,34 @@ class BayesGAMH(commands.Cog):
         """Get a game by its game ID"""
         await ctx.send(await self.format_game_long(await self.api.get_game(game_id), ctx.author))
 
+    @mh_query.command(name='findgame')
+    async def mh_q_findgame(self, ctx, game_id):
+        """Finds the tournament and game in the wiki corresponding to the given game ID"""
+        site = await login_if_possible(ctx, self.bot, 'lol')
+
+        result = site.cargo_client.query(
+            tables="MatchScheduleGame=MSG, Tournaments=T",
+            fields="MSG.Blue, MSG.Red, MSG.Winner, T.StandardName, MSG._pageName=Page",
+            join_on="MSG.OverviewPage=T.OverviewPage",
+            where=f"MSG.RiotPlatformGameId = '{game_id}'"
+        )
+
+        if not result:
+            await ctx.send("The given ID could not be found on the wiki!")
+
+        for item in result:
+            team1, team2 = item["Blue"] or "Unknown", item["Red"] or "Unknown"
+            winner = "None"
+            if item["Winner"] == "1":
+                winner = team1
+            elif item["Winner"] == "2":
+                winner = team2
+            await ctx.send(f"`{game_id}`\n"
+                           f"\t\tPage: `{item['Page']}`\n"
+                           f"\t\tTournament: `{item['StandardName']}`\n"
+                           f"\t\tTeams: `{team1}` vs `{team2}`\n"
+                           f"\t\tWinner: `{winner}`")
+
     @mh_query.command(name='getasset')
     @auth_check('mhadmin')
     async def mh_q_getasset(self, ctx, game_id, asset):
