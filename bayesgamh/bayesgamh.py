@@ -360,7 +360,7 @@ class BayesGAMH(commands.Cog):
 
         result = site.cargo_client.query(
             tables="MatchScheduleGame=MSG, Tournaments=T",
-            fields="MSG.Blue, MSG.Red, MSG.Winner, T.StandardName, MSG._pageName=Page",
+            fields="MSG.Blue, MSG.Red, MSG.Winner, T.StandardName, MSG._pageName=Page, MSG.GameId",
             join_on="MSG.OverviewPage=T.OverviewPage",
             where=f"MSG.RiotPlatformGameId = '{game_id}'"
         )
@@ -378,6 +378,7 @@ class BayesGAMH(commands.Cog):
             await ctx.send(f"`{game_id}`\n"
                            f"\t\tPage: `{item['Page']}`\n"
                            f"\t\tTournament: `{item['StandardName']}`\n"
+                           f"\t\tWiki Game ID: `{item['GameId']}`\n"
                            f"\t\tTeams: `{team1}` vs `{team2}`\n"
                            f"\t\tWinner: `{winner}`")
 
