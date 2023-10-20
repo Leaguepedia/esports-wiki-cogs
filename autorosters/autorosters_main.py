@@ -101,10 +101,11 @@ class AutoRostersRunner(TaskRunner):
             self.match_data[match["MatchId"]]["games"][match["GameId"]] = {"msg_data": match}
 
     def get_player_id(self, player):
+        print(player)
         response = self.site.cargo_client.query(
             tables="Players=P, PlayerRedirects=PR",
             fields="P.Player",
-            where=f"PR.AllName = '{player}'",
+            where=f"PR.AllName = \"{player}\"",
             join_on="P.OverviewPage=PR.OverviewPage"
         )
         if not response:
@@ -350,4 +351,4 @@ class AutoRostersRunner(TaskRunner):
 if __name__ == '__main__':
     credentials = AuthCredentials(user_file='bot')
     lol_site = EsportsClient('lol', credentials=credentials)
-    AutoRostersRunner(lol_site, "Volcano League/2023 Season/Opening Season").run()
+    AutoRostersRunner(lol_site, "Greek Legends League/2023 Season/Pro-Am").run()
