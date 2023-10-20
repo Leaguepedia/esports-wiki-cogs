@@ -101,7 +101,6 @@ class AutoRostersRunner(TaskRunner):
             self.match_data[match["MatchId"]]["games"][match["GameId"]] = {"msg_data": match}
 
     def get_player_id(self, player):
-        print(player)
         response = self.site.cargo_client.query(
             tables="Players=P, PlayerRedirects=PR",
             fields="P.Player",
