@@ -690,8 +690,8 @@ class BayesGAMH(commands.Cog):
             summary = json.loads(await self.api.get_asset(game['platformGameId'], 'GAMH_SUMMARY'))
             if "participants" in summary and len(summary['participants'][::5]) == 2:
                 t1, t2 = summary['participants'][::5]
-                team1_short = t1['summonerName'].split(' ')[0]
-                team2_short = t2['summonerName'].split(' ')[0]
+                team1_short = t1['riotIdGameName'].split(' ')[0]
+                team2_short = t2['riotIdGameName'].split(' ')[0]
                 if t1["win"]:
                     winner = team1_short
                     has_winner = True
