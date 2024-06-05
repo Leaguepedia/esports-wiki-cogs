@@ -28,6 +28,8 @@ from bayesgamh.bayes_api_wrapper import AssetType, BayesAPIWrapper, Game, Tag
 from bayesgamh.converters import DateConverter
 from bayesgamh.errors import BadRequestException
 
+from bayesgamh.grid_api_wrapper import GridAPIWrapper
+
 logger = logging.getLogger('red.esports-wiki-cogs.bayesgamh')
 
 
@@ -59,6 +61,7 @@ class BayesGAMH(commands.Cog):
         self.config.register_user(allowed_tags={}, subscriptions={}, jsononly=True)
 
         self.api = BayesAPIWrapper(bot, self.session)
+        self.grid_api = GridAPIWrapper(bot, self.session)
 
         self._loop = bot.loop.create_task(self.do_loop())
         self.games_cache = None
@@ -664,6 +667,15 @@ class BayesGAMH(commands.Cog):
         else:
             await ctx.tick()
 
+    @mhtool.group(name='gridtest')
+    async def mh_gridtest(self, ctx):
+        """Test Commands for GRID"""
+
+    @mh_gridtest.command(name='test')
+    async def mh_gt_test(self, ctx, *, platform_game_id):
+        summary, details = await self.grid_api.get_asset(platform_game_id)
+        await ctx.send(file=discord.File(BytesIO(json.dumps(summary).encode("utf-8")), 'summary.json'))
+
     async def format_game(self, game: Game, user: Optional[User]) -> str:
         status = f" ({game['status']})" if game['status'] != "FINISHED" else ""
 
@@ -712,8 +724,7 @@ class BayesGAMH(commands.Cog):
                 f"\t\tTeams: {teams}\n"
                 f"\t\tWinner: {winner}\n"
                 f"\t\tStart Time: {self.parse_date(game['createdAt'])}\n"
-                f"\t\tTags: {', '.join(map(inline, sorted(game['tags'])))}\n"
-                f"\t\tBlock: `{block}`")
+                f"\t\tTournament: ")
 
     @staticmethod
     def get_ready_to_parse_string(assets: List[AssetType], has_winner: bool = True):
