@@ -22,6 +22,13 @@ teams {
 }
 tournament {
     name
+    id
+    parent {
+        id
+    }
+    children {
+        id
+    }
 }
 """
 
@@ -29,6 +36,12 @@ GRAPHQL_TOURNAMENT_FIELDS_STRING = """
 id
 name
 nameShortened
+parent {
+    id
+}
+children {
+    id
+}
 """
 
 
@@ -68,7 +81,13 @@ class GridAPIWrapper:
 
         return _list
 
-    async def _do_graphql_pagination(self, query_name: str, query: str, variables: dict, limit: Optional[int] = None):
+    async def _do_graphql_pagination(
+            self,
+            query_name: str,
+            query: str,
+            variables: dict,
+            limit: Optional[int] = None
+    ) -> list:
         response = await self._do_graphql_query(query=query, variables=variables)
         ret = response
         while response[query_name]["pageInfo"]["hasNextPage"] or len(ret[query_name]["edges"]) >= limit:
@@ -85,7 +104,7 @@ class GridAPIWrapper:
             tournament_ids: Optional[Union[Iterable[Union[str, int]], Union[str, int]]] = None,
             series_types: Optional[Union[Iterable[str], str]] = None,
             grid_game_ids: Optional[Union[Iterable[str], str]] = None
-    ):
+    ) -> list:
         query = f"""
         query GetSeriesList($first: Int, $after: Cursor, $gte: String, $lte: String, $titleIds: [ID!], 
         $tournamentIds: [ID!], $seriesTypes: [SeriesType!], $gameIds: [ID!]) {{
@@ -148,7 +167,8 @@ class GridAPIWrapper:
         query GetSeries($seriesId: ID!) {{
             series (
                 id: $seriesId
-            ) {{
+            )
+            {{
                 {GRAPHQL_SERIES_FIELDS_STRING}
             }}
         }}
@@ -160,14 +180,11 @@ class GridAPIWrapper:
 
         return (await self._do_graphql_query(query=query, variables=variables))["series"]
 
-    async def _do_graphql_tournaments_query(self, after: Optional[str] = None) -> dict:
+    async def _do_graphql_tournament_query(self, tournament_id: Union[str, int]) -> dict:
         query = f"""
-        query GetTournamentsList($after: Cursor, $titleId: ID!) {{
-            tournaments (
-                after: $after
-                filter: {{
-                    titleId: $titleId
-                }}
+        query GetTournament($tournamentId: ID!) {{
+            tournament (
+                id: $tournamentId
             )
             {{
                 {GRAPHQL_TOURNAMENT_FIELDS_STRING}
@@ -176,11 +193,58 @@ class GridAPIWrapper:
         """
 
         variables = {
-            "after": after,
+            "tournamentId": str(tournament_id)
+        }
+
+        return (await self._do_graphql_query(query, variables))["tournament"]
+
+    async def _do_graphql_tournaments_query(
+            self,
+            has_parent: Optional[bool] = None,
+            has_children: Optional[bool] = None,
+            limit: Optional[int] = None
+    ) -> list:
+        query = f"""
+        query GetTournamentsList($after: Cursor, $titleId: ID!, $hasParent: Boolean, $hasChildren: Boolean, 
+        $first: Int) {{
+            tournaments (
+                after: $after
+                first: $first
+                filter: {{
+                    titleId: $titleId
+                    hasParent: {{
+                        equals: $hasParent
+                    }}
+                    hasChildren: {{
+                        equals: $hasChildren
+                    }}
+                }}
+            )
+            {{
+                totalCount
+                pageInfo {{
+                    hasPreviousPage
+                    hasNextPage
+                    startCursor
+                    endCursor
+                }}
+                edges {{
+                    node {{
+                        {GRAPHQL_TOURNAMENT_FIELDS_STRING}
+                    }}
+                }}
+            }}
+        }}
+        """
+
+        variables = {
+            "first": 50,
+            "hasParent": str(has_parent).lower(),
+            "hasChildren": str(has_children).lower(),
             "titleId": LOL_GRID_TITLE_ID,
         }
 
-        return (await self._do_graphql_query(query=query, variables=variables))["tournaments"]
+        return await self._do_graphql_pagination("tournaments", query, variables, limit)
 
     async def get_series_data_by_platform_game_id(self, platform_game_id: str) -> dict:
         grid_game_id = await self._do_graphql_game_id_by_external_id_query(platform_game_id)
