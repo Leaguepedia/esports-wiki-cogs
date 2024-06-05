@@ -68,18 +68,18 @@ class GridAPIWrapper:
 
         return _list
 
-    async def _do_graphql_pagination(self, query_name: str, query: str, variables: dict):
+    async def _do_graphql_pagination(self, query_name: str, query: str, variables: dict, limit: Optional[int] = None):
         response = await self._do_graphql_query(query=query, variables=variables)
         ret = response
-        while response[query_name]["pageInfo"]["hasNextPage"]:
+        while response[query_name]["pageInfo"]["hasNextPage"] or len(ret[query_name]["edges"]) >= limit:
             variables["after"] = response[query_name]["pageInfo"]["endCursor"]
             response = await self._do_graphql_query(query=query, variables=variables)
             ret[query_name]["edges"].extend(response[query_name]["edges"])
-        return response[query_name]["edges"]
+        return response[query_name]["edges"][:limit]
 
     async def _do_graphql_allseries_query(
             self,
-            game_count: Optional[int] = None,
+            limit: Optional[int] = None,
             gte: Optional[Union[str, datetime]] = None,
             lte: Optional[Union[str, datetime]] = None,
             tournament_ids: Optional[Union[Iterable[Union[str, int]], Union[str, int]]] = None,
@@ -132,7 +132,7 @@ class GridAPIWrapper:
         """
 
         variables = {
-            "first": game_count or 50,
+            "first": 50,
             "gte": await self._cast_datetime(gte),
             "lte": await self._cast_datetime(lte),
             "titleIds": LOL_GRID_TITLE_ID,
@@ -141,7 +141,7 @@ class GridAPIWrapper:
             "gameIds": await self._join_list_if_needed(grid_game_ids)
         }
 
-        return await self._do_graphql_pagination("allSeries", query, variables)
+        return await self._do_graphql_pagination("allSeries", query, variables, limit)
 
     async def _do_graphql_series_query(self, series_id: Union[str, int]) -> dict:
         query = f"""
