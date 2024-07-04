@@ -26,7 +26,6 @@ class AutoRosters(commands.Cog):
         runner.run()
         username = site.credentials.username
         username = username.split('@')[0] if "@" in username else username
-        username = username.replace(" ", "_")
         sandbox_page = f"\nhttps://lol.fandom.com/wiki/User:{username}/Team_Rosters_Sandbox".replace(" ", "_")
         rosters_page = f"\nhttps://lol.fandom.com/wiki/{overview_page}/Team_Rosters".replace(" ", "_")
         done_message = "Okay, done!"
