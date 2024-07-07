@@ -6,7 +6,7 @@ class BadRequestException(ClientInlineTextException):
         super().__init__(reason, *args)
 
 
-class NotFoundError(Exception):
+class NotFoundException(Exception):
     pass
 
 

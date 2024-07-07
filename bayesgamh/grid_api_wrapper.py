@@ -1,47 +1,66 @@
 from redbot.core.bot import Red
 from tsutils.errors import NoAPIKeyException
-from bayesgamh.errors import RateLimitException, BadRequestException, NotFoundError
+from bayesgamh.errors import RateLimitException, BadRequestException, NotFoundException
 
-from typing import Any, Dict, Iterable, List, Literal, Optional, TypedDict, Union
+import backoff
+
+from typing import Iterable, Literal, Optional, Union, TypedDict
 from datetime import datetime
 
 from aiohttp import ClientSession, ClientResponse
+from aiohttp.client_exceptions import ClientResponseError
 
-AssetType = Literal['summary', 'details']
+import re
+
+FileType = Literal['summary', 'details']
+
+
+class Tournament(TypedDict):
+    id: str
+    name: str
+    parent: dict
+    children: dict
+
+
+class Series(TypedDict):
+    id: str
+    startTimeScheduled: str
+    tournament: Tournament
+    file_list: list
+
+
+class GridFileData(TypedDict):
+    id: str
+    description: str
+    status: str
+    fileName: str
+    fullURL: str
+
 
 LOL_GRID_TITLE_ID = 3
 LOL_GRID_DATA_PROVIDER = "LOL_LIVE"
 
-GRAPHQL_SERIES_FIELDS_STRING = """
-id
-startTimeScheduled
-teams {
-    baseInfo {
-        name
-    }
-}
-tournament {
-    name
-    id
-    parent {
-        id
-    }
-    children {
-        id
-    }
-}
-"""
+END_STATE_FILE_ID_RE = r"^state-(summary|details)-riot-game-([0-9]+)$"
 
 GRAPHQL_TOURNAMENT_FIELDS_STRING = """
 id
 name
-nameShortened
 parent {
     id
+    name
 }
 children {
     id
+    name
 }
+"""
+
+GRAPHQL_SERIES_FIELDS_STRING = f"""
+id
+startTimeScheduled
+tournament {{
+    { GRAPHQL_TOURNAMENT_FIELDS_STRING }
+}}
 """
 
 
@@ -49,6 +68,8 @@ class GridAPIWrapper:
     def __init__(self, bot: Red, session: ClientSession):
         self.bot = bot
         self.session = session
+
+        self.tournament_cache = {}
 
         self.api_token = None
 
@@ -67,19 +88,18 @@ class GridAPIWrapper:
         }
 
     @staticmethod
-    async def _cast_datetime(date: Union[str, datetime, None]):
+    async def _cast_datetime(date: Union[str, datetime, None]) -> str:
         if isinstance(date, datetime):
             return date.isoformat()
 
         return date
 
     @staticmethod
-    async def _join_list_if_needed(_list: Union[list, None]) -> Union[str, None]:
-        if isinstance(_list, list):
-            _list = [str(item) for item in _list]
-            return ",".join(_list)
+    async def _split_if_needed(_str: Union[str, list, None]) -> Union[list, None]:
+        if isinstance(_str, str):
+            return _str.split(",")
 
-        return _list
+        return _str
 
     async def _do_graphql_pagination(
             self,
@@ -89,28 +109,37 @@ class GridAPIWrapper:
             limit: Optional[int] = None
     ) -> list:
         response = await self._do_graphql_query(query=query, variables=variables)
-        ret = response
-        while response[query_name]["pageInfo"]["hasNextPage"] or len(ret[query_name]["edges"]) >= limit:
+        full_response = response
+        ret = []
+        while response[query_name]["pageInfo"]["hasNextPage"]:
             variables["after"] = response[query_name]["pageInfo"]["endCursor"]
             response = await self._do_graphql_query(query=query, variables=variables)
-            ret[query_name]["edges"].extend(response[query_name]["edges"])
-        return response[query_name]["edges"][:limit]
+            full_response[query_name]["edges"].extend(response[query_name]["edges"])
+            if limit and len(full_response[query_name]["edges"]) >= limit:
+                break
+        for row in full_response[query_name]["edges"]:
+            ret.append(row["node"])
+        return ret[:limit]
 
-    async def _do_graphql_allseries_query(
+    async def get_series_list(
             self,
             limit: Optional[int] = None,
             gte: Optional[Union[str, datetime]] = None,
             lte: Optional[Union[str, datetime]] = None,
             tournament_ids: Optional[Union[Iterable[Union[str, int]], Union[str, int]]] = None,
-            series_types: Optional[Union[Iterable[str], str]] = None,
-            grid_game_ids: Optional[Union[Iterable[str], str]] = None
-    ) -> list:
+            grid_game_ids: Optional[Union[Iterable[str], str]] = None,
+            return_parent_tournaments: Optional[bool] = False,
+            return_file_list: Optional[bool] = False,
+            invert_order: Optional[bool] = True
+    ) -> list[Series]:
         query = f"""
         query GetSeriesList($first: Int, $after: Cursor, $gte: String, $lte: String, $titleIds: [ID!], 
-        $tournamentIds: [ID!], $seriesTypes: [SeriesType!], $gameIds: [ID!]) {{
+        $tournamentIds: [ID!], $seriesTypes: [SeriesType!], $gameIds: [ID!], $orderDirection: OrderDirection!) {{
             allSeries (
                 first: $first
                 after: $after
+                orderBy: StartTimeScheduled
+                orderDirection: $orderDirection
                 filter: {{
                     startTimeScheduled: {{
                         gte: $gte
@@ -154,15 +183,45 @@ class GridAPIWrapper:
             "first": 50,
             "gte": await self._cast_datetime(gte),
             "lte": await self._cast_datetime(lte),
-            "titleIds": LOL_GRID_TITLE_ID,
-            "tournamentIds": await self._join_list_if_needed(tournament_ids),
-            "seriesTypes": await self._join_list_if_needed(series_types),
-            "gameIds": await self._join_list_if_needed(grid_game_ids)
+            "titleIds": [LOL_GRID_TITLE_ID],
+            # We only care about ESPORTS series
+            "seriesTypes": ["ESPORTS"],
+            "tournamentIds": await self._split_if_needed(tournament_ids),
+            "gameIds": await self._split_if_needed(grid_game_ids),
+            "orderDirection": "DESC" if invert_order else "ASC"
         }
 
-        return await self._do_graphql_pagination("allSeries", query, variables, limit)
+        series_list = await self._do_graphql_pagination("allSeries", query, variables, limit)
 
-    async def _do_graphql_series_query(self, series_id: Union[str, int]) -> dict:
+        ret = []
+
+        for series in series_list:
+            if return_parent_tournaments:
+                series["tournament"] = await self.get_parent_tournament(series["tournament"]["id"])
+            if return_file_list:
+                series["file_list"] = await self.get_series_file_list(series["id"])
+            ret.append(series)
+
+        return ret
+
+    async def get_parent_tournament(self, tournament_id: Union[str, int]) -> Tournament:
+        if tournament_id in self.tournament_cache:
+            return self.tournament_cache[tournament_id]
+
+        children = []
+        while True:
+            children.append(tournament_id)
+            response = await self.get_tournament(tournament_id)
+            if response["parent"] is None:
+                break
+            tournament_id = response["parent"]["id"]
+
+        for child in children:
+            self.tournament_cache[child] = response
+
+        return self.tournament_cache[tournament_id]
+
+    async def get_series(self, series_id: Union[str, int]) -> Series:
         query = f"""
         query GetSeries($seriesId: ID!) {{
             series (
@@ -178,9 +237,14 @@ class GridAPIWrapper:
             "seriesId": str(series_id)
         }
 
-        return (await self._do_graphql_query(query=query, variables=variables))["series"]
+        response = (await self._do_graphql_query(query=query, variables=variables))["series"]
 
-    async def _do_graphql_tournament_query(self, tournament_id: Union[str, int]) -> dict:
+        if response is None:
+            raise BadRequestException(f"Series ID {series_id} was not found!")
+
+        return response
+
+    async def get_tournament(self, tournament_id: Union[str, int]) -> Tournament:
         query = f"""
         query GetTournament($tournamentId: ID!) {{
             tournament (
@@ -196,14 +260,19 @@ class GridAPIWrapper:
             "tournamentId": str(tournament_id)
         }
 
-        return (await self._do_graphql_query(query, variables))["tournament"]
+        response = (await self._do_graphql_query(query, variables))["tournament"]
 
-    async def _do_graphql_tournaments_query(
+        if response is None:
+            raise BadRequestException(f"Tournament ID {tournament_id} was not found!")
+
+        return response
+
+    async def get_tournaments_list(
             self,
             has_parent: Optional[bool] = None,
             has_children: Optional[bool] = None,
             limit: Optional[int] = None
-    ) -> list:
+    ) -> list[Tournament]:
         query = f"""
         query GetTournamentsList($after: Cursor, $titleId: ID!, $hasParent: Boolean, $hasChildren: Boolean, 
         $first: Int) {{
@@ -239,23 +308,14 @@ class GridAPIWrapper:
 
         variables = {
             "first": 50,
-            "hasParent": str(has_parent).lower(),
-            "hasChildren": str(has_children).lower(),
+            "hasParent": has_parent,
+            "hasChildren": has_children,
             "titleId": LOL_GRID_TITLE_ID,
         }
 
         return await self._do_graphql_pagination("tournaments", query, variables, limit)
 
-    async def get_series_data_by_platform_game_id(self, platform_game_id: str) -> dict:
-        grid_game_id = await self._do_graphql_game_id_by_external_id_query(platform_game_id)
-        if grid_game_id is None:
-            raise NotFoundError
-        series_data = (await self._do_graphql_allseries_query(grid_game_ids=grid_game_id))
-        if not series_data:
-            raise NotFoundError
-        return series_data[0]["node"]
-
-    async def _do_graphql_game_id_by_external_id_query(self, platform_game_id: str) -> dict:
+    async def _do_graphql_game_id_by_external_id_query(self, platform_game_id: str) -> str:
         query = """
         query GetGameIdByExternalId($dataProviderName: String!, $externalGameId: ID!) {
             gameIdByExternalId (
@@ -278,17 +338,30 @@ class GridAPIWrapper:
             "query": query,
             "variables": variables,
         }
-        return (await self._do_api_call("POST", service, data=data))["data"]
 
-    # This function sucks
-    async def get_assets(
+        response = await self._do_api_call("POST", service, data=data)
+
+        return response["data"]
+
+    async def get_one_file_by_platform_game_id(self, platform_game_id: str, file_type: FileType) -> dict:
+        if file_type not in ['summary', 'details']:
+            raise BadRequestException("The file type must be summary or details.")
+        summary, details = await self.get_files_by_platform_game_id(platform_game_id)
+        if file_type == "summary":
+            return summary
+        else:
+            if not details:
+                raise NotFoundException
+            return details
+
+    async def get_files_by_platform_game_id(
             self,
             platform_game_id: str
-    ) -> Union[tuple[dict, dict], tuple[None, None]]:
+    ) -> tuple[dict, Union[dict, None]]:
         platform_id, game_id = platform_game_id.split("_")
 
         series_id = (await self.get_series_data_by_platform_game_id(platform_game_id))["id"]
-        file_list = await self._do_filedownload_list_games_query(series_id)
+        file_list = await self.get_series_file_list(series_id)
 
         # Now we need to go through every riot end state summary file with ready as its status,
         # download the file and check if platformId and gameId matches the given platform_game_id,
@@ -302,28 +375,54 @@ class GridAPIWrapper:
             if file_data["status"] != "ready" or not file_data["id"].startswith("state-summary-riot"):
                 continue
             game_sequence = file_data["id"].split("-")[4]
-            summary = await self._do_filedownload_download_query("summary", series_id, game_sequence)
+            summary = await self.get_file("summary", series_id, game_sequence)
             if summary["platformId"] != platform_id or str(summary["gameId"]) != game_id:
                 continue
             game_found = True
             try:
-                details = await self._do_filedownload_download_query("details", series_id, game_sequence)
-            except NotFoundError:
+                details = await self.get_file("details", series_id, game_sequence)
+            except NotFoundException:
                 details = None
             break
 
         if not game_found:
-            return None, None
+            raise NotFoundException
 
         return summary, details
 
-    async def _do_filedownload_list_games_query(self, series_id: str) -> list:
-        return (await self._do_api_call("GET", f"file-download/list/{series_id}"))["files"]
+    async def get_series_data_by_platform_game_id(self, platform_game_id: str) -> dict:
+        grid_game_id = await self._do_graphql_game_id_by_external_id_query(platform_game_id)
+        if grid_game_id is None:
+            raise NotFoundException
+        series_data = (await self.get_series_list(grid_game_ids=grid_game_id))
+        if not series_data:
+            raise NotFoundException
+        return series_data[0]
 
-    async def _do_filedownload_download_query(self, asset: AssetType, series_id: str, game_sequence: str) -> dict:
+    async def get_series_file_list(
+            self,
+            series_id: str,
+            only_end_state_files: Optional[bool] = True,
+            filter_non_ready_files: Optional[bool] = True
+    ) -> list[GridFileData]:
+        response = (await self._do_api_call("GET", f"file-download/list/{series_id}"))["files"]
+
+        ret = []
+
+        for file in response:
+            if (
+                    (only_end_state_files and not re.match(END_STATE_FILE_ID_RE, file["id"])) or
+                    (filter_non_ready_files and file["status"] != "ready")
+            ):
+                continue
+            ret.append(file)
+
+        return ret
+
+    async def get_file(self, file_type: FileType, series_id: str, game_sequence: str) -> dict:
         return await self._do_api_call(
             "GET",
-            f"file-download/end-state/riot/series/{series_id}/games/{game_sequence}/{asset}"
+            f"file-download/end-state/riot/series/{series_id}/games/{game_sequence}/{file_type}"
         )
 
     @staticmethod
@@ -332,15 +431,23 @@ class GridAPIWrapper:
             raise RateLimitException
         elif response.status == 403:
             # For some reason 403 means not found in the file-download API
-            raise NotFoundError
+            raise NotFoundException
+        elif "application/json" in response.headers.get("content-type", ""):
+            response_j = await response.json()
+            # GRID doesn't like 429 errors
+            if (
+                    response_j.get("errors") and
+                    response_j["errors"][0].get("extensions") and
+                    response_j["errors"][0]["extensions"].get("errorDetail") == "ENHANCE_YOUR_CALM"
+            ):
+                raise RateLimitException
+            elif response_j.get("errors"):
+                raise ClientResponseError
         response.raise_for_status()
 
+    @backoff.on_exception(backoff.expo, RateLimitException, logger=None)
     async def _do_api_call(self, method: Literal['GET', 'POST'], route: str, data: Optional[dict] = None) -> dict:
         endpoint = "https://api.grid.gg/"
-
-        print(endpoint + route)
-        print(data)
-        print(await self._get_headers())
 
         if method == "GET":
             async with self.session.get(endpoint + route, params=data, headers=await self._get_headers()) as resp:
