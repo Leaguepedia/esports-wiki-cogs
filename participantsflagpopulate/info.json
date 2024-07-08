@@ -1,6 +1,6 @@
 {
   "author": ["arbolitoloco"],
   "name": "ParticipantsFlagPopulate",
-  "description": "Automatically generates Team Rosters for Leaguepedia, using scoreboard data",
-  "requirements": ["mwrogue", "esports_cog_utils"]
+  "description": "Automatically populates flags for every player with a page on a given tournament",
+  "requirements": ["mwrogue", "esports_cog_utils", "mwparserfromhell"]
 }
