@@ -8,7 +8,6 @@ from typing import Iterable, Literal, Optional, Union, TypedDict
 from datetime import datetime
 
 from aiohttp import ClientSession, ClientResponse
-from aiohttp.client_exceptions import ClientResponseError
 
 import re
 
@@ -127,14 +126,17 @@ class GridAPIWrapper:
             gte: Optional[Union[str, datetime]] = None,
             lte: Optional[Union[str, datetime]] = None,
             tournament_ids: Optional[Union[Iterable[Union[str, int]], Union[str, int]]] = None,
+            tournament_name: Optional[str] = None,
             grid_game_ids: Optional[Union[Iterable[str], str]] = None,
             return_parent_tournaments: Optional[bool] = False,
             return_file_list: Optional[bool] = False,
-            invert_order: Optional[bool] = True
+            invert_order: Optional[bool] = True,
+            include_tournament_children: Optional[bool] = None,
     ) -> list[Series]:
         query = f"""
         query GetSeriesList($first: Int, $after: Cursor, $gte: String, $lte: String, $titleIds: [ID!], 
-        $tournamentIds: [ID!], $seriesTypes: [SeriesType!], $gameIds: [ID!], $orderDirection: OrderDirection!) {{
+        $tournamentIds: [ID!], $seriesTypes: [SeriesType!], $gameIds: [ID!], $orderDirection: OrderDirection!
+        $tournamentName: String, $includeChildren: Boolean) {{
             allSeries (
                 first: $first
                 after: $after
@@ -151,6 +153,12 @@ class GridAPIWrapper:
                     tournament: {{
                         id: {{
                             in: $tournamentIds  
+                        }}
+                        name: {{
+                            equals: $tournamentName
+                        }}
+                        includeChildren: {{
+                            equals: $includeChildren
                         }}
                     }}
                     types: $seriesTypes
@@ -187,8 +195,10 @@ class GridAPIWrapper:
             # We only care about ESPORTS series
             "seriesTypes": ["ESPORTS"],
             "tournamentIds": await self._split_if_needed(tournament_ids),
+            "tournamentName": tournament_name,
             "gameIds": await self._split_if_needed(grid_game_ids),
-            "orderDirection": "DESC" if invert_order else "ASC"
+            "orderDirection": "DESC" if invert_order else "ASC",
+            "includeChildren": include_tournament_children
         }
 
         series_list = await self._do_graphql_pagination("allSeries", query, variables, limit)
@@ -271,11 +281,12 @@ class GridAPIWrapper:
             self,
             has_parent: Optional[bool] = None,
             has_children: Optional[bool] = None,
-            limit: Optional[int] = None
+            limit: Optional[int] = None,
+            tournament_name: Optional[str] = None
     ) -> list[Tournament]:
         query = f"""
         query GetTournamentsList($after: Cursor, $titleId: ID!, $hasParent: Boolean, $hasChildren: Boolean, 
-        $first: Int) {{
+        $first: Int, $tournamentName: String) {{
             tournaments (
                 after: $after
                 first: $first
@@ -286,6 +297,9 @@ class GridAPIWrapper:
                     }}
                     hasChildren: {{
                         equals: $hasChildren
+                    }}
+                    name: {{
+                        equals: $tournamentName
                     }}
                 }}
             )
@@ -311,6 +325,7 @@ class GridAPIWrapper:
             "hasParent": has_parent,
             "hasChildren": has_children,
             "titleId": LOL_GRID_TITLE_ID,
+            "tournamentName": tournament_name
         }
 
         return await self._do_graphql_pagination("tournaments", query, variables, limit)
@@ -441,8 +456,6 @@ class GridAPIWrapper:
                     response_j["errors"][0]["extensions"].get("errorDetail") == "ENHANCE_YOUR_CALM"
             ):
                 raise RateLimitException
-            elif response_j.get("errors"):
-                raise ClientResponseError
         response.raise_for_status()
 
     @backoff.on_exception(backoff.expo, RateLimitException, logger=None)

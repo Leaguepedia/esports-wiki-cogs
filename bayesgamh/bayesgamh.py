@@ -3,10 +3,10 @@ import logging
 import time
 import json
 from collections import defaultdict
-from datetime import datetime, time as dt_time
+from datetime import datetime
 from datetime import timedelta, timezone
 from io import BytesIO
-from typing import Any, Callable, Coroutine, Iterable, List, NoReturn, Optional, Sequence
+from typing import Any, Callable, NoReturn, Optional
 
 import aiohttp
 import discord
@@ -14,21 +14,19 @@ from dateutil.parser import isoparse
 from discord import DMChannel, TextChannel, User
 from esports_cog_utils.utils import login_if_possible
 from mwrogue.esports_client import EsportsClient
-from pytz import utc
 from redbot.core import Config, commands
 from redbot.core.bot import Red
 from redbot.core.commands import UserInputOptional
 from redbot.core.utils.chat_formatting import box, inline, pagify, spoiler
 from tsutils.cogs.globaladmin import auth_check, has_perm
-from tsutils.errors import ClientInlineTextException
 from tsutils.helper_functions import repeating_timer
 from tsutils.user_interaction import cancellation_message, confirmation_message, get_user_confirmation, \
     send_cancellation_message
 
+from bayesgamh.errors import NotFoundException
 from bayesgamh.converters import DateConverter
-from bayesgamh.errors import BadRequestException
 
-from bayesgamh.grid_api_wrapper import GridAPIWrapper, FileType
+from bayesgamh.grid_api_wrapper import GridAPIWrapper, FileType, Series, GridFileData
 
 logger = logging.getLogger('red.esports-wiki-cogs.bayesgamh')
 
@@ -60,7 +58,7 @@ class BayesGAMH(commands.Cog):
                                     invalid_games={}, grid_gte=False)
         self.config.register_user(allowed_tournaments={}, subscriptions={})
 
-        self.grid_api = GridAPIWrapper(bot, self.session)
+        self.api = GridAPIWrapper(bot, self.session)
 
         self._loop = bot.loop.create_task(self.do_loop())
         self.subscription_lock = asyncio.Lock()
@@ -89,7 +87,7 @@ class BayesGAMH(commands.Cog):
         try:
             async for _ in repeating_timer(120):
                 try:
-                    series_cache = await self.grid_api.get_series_list(
+                    series_cache = await self.api.get_series_list(
                         limit=200,
                         gte=(await self.config.grid_gte()) or None,
                         # If we don't specifiy a time limit we get a lot of scheduled games which are useless
@@ -120,20 +118,53 @@ class BayesGAMH(commands.Cog):
         )
 
     @staticmethod
-    async def get_changed_games(changed_series: list, seen: dict) -> dict:
-        changed_games = {}
+    async def get_game_file_list(series: Series, game_sequence) -> list:
+        ret = []
 
-        for series in changed_series:
-            seen_files = seen.get(series["id"], [])
-            for file in series["file_list"]:
-                if file["id"] not in seen_files:
-                    game_sequence = file["id"].split("-")[-1]
-                    game_id = f"{series['id']}_{game_sequence}"
-                    if game_id not in changed_games:
-                        changed_games[game_id] = {"sequence": game_sequence, "series": series, "files": []}
-                    changed_games[game_id]["files"].append(file["id"])
+        for file_data in series["file_list"]:
+            if file_data["id"].split("-")[-1] == game_sequence:
+                ret.append(file_data["id"])
 
-        return changed_games
+        return ret
+
+    async def extract_games_from_series_list(self, series_list: list[Series],
+                                             retrieve_game_summary: Optional[bool] = False,
+                                             filt: Optional[Callable] = None, **kwargs) -> list:
+        games = {}
+
+        if filt is None:
+            async def filt(*args):
+                return True
+
+        for series in series_list:
+            for file_data in series["file_list"]:
+                game_sequence = file_data["id"].split("-")[-1]
+                game_id = f"{series['id']}_{game_sequence}"
+
+                game = {"sequence": game_sequence, "series": series,
+                        "files": await self.get_game_file_list(series, game_sequence)}
+
+                if retrieve_game_summary:
+                    game["summary"] = await self.api.get_file("summary", series["id"], game_sequence)
+                    platform_id = game["summary"]["platformId"]
+                    r_game_id = game["summary"]["gameId"]
+                    game["platform_game_id"] = f"{platform_id}_{r_game_id}"
+
+                if not await filt(series, file_data, kwargs):
+                    continue
+                if game_id not in games:
+                    games[game_id] = game
+
+        return list(games.values())
+
+    @staticmethod
+    async def filter_unseen_files(series: Series, file_data: GridFileData, kwargs):
+        seen = kwargs["seen"]
+        seen_files = seen.get(series["id"], [])
+
+        if file_data["id"] not in seen_files:
+            return True
+        return False
 
     async def do_subscriptions(self, series_cache: list) -> None:
         async with self.subscription_lock, self.config.seen() as seen:
@@ -144,14 +175,15 @@ class BayesGAMH(commands.Cog):
 
             changed_series = await self.get_changed_series(series_cache, seen)
 
-            changed_games = await self.get_changed_games(changed_series, seen)
+            changed_games = await self.extract_games_from_series_list(changed_series, filt=self.filter_unseen_files,
+                                                                      seen=seen)
                     
             for u_id, data in (await self.config.all_users()).items():
                 if (user := self.bot.get_user(u_id)) is None:
                     logger.warning(f"Failed to find user with ID {u_id} for subscription.")
                     continue
                 msg = [
-                    await self.format_game_long(game, user) for game in list(changed_games.values()) if (
+                    await self.format_game_long(game, user) for game in changed_games if (
                         u_id in tournaments_to_uid[game["series"]["tournament"]["name"]].union(
                             tournaments_to_uid['ALL']
                         )
@@ -173,11 +205,12 @@ class BayesGAMH(commands.Cog):
         async with self.config.autochannel_seen() as seen:
             changed_series = await self.get_changed_series(series_cache, seen)
 
-            changed_games = await self.get_changed_games(changed_series, seen)
+            changed_games = await self.extract_games_from_series_list(changed_series, filt=self.filter_unseen_files,
+                                                                      seen=seen)
 
             msg = [
                 await self.format_game_long(game, None) for game in
-                list(changed_games.values()) if f"state-details-riot-game-{game['sequence']}" in game["files"]
+                changed_games if f"state-details-riot-game-{game['sequence']}" in game["files"]
                 and f"state-summary-riot-game-{game['sequence']}" in game["files"]
             ]
 
@@ -318,7 +351,7 @@ class BayesGAMH(commands.Cog):
         """List all available tournaments sorted alphabetically by length"""
         for page in pagify(
                 ', '.join(map(inline, sorted(
-                    [tournament["name"] for tournament in await self.grid_api.get_tournaments_list(has_parent=False)]
+                    [tournament["name"] for tournament in await self.api.get_tournaments_list(has_parent=False)]
                 ))), delims=[', ']
         ):
             await ctx.send(page.strip(', '))
@@ -343,7 +376,7 @@ class BayesGAMH(commands.Cog):
             tournaments.update(set(data.get('allowed_tournaments', {})))
             tournaments.update(set(data.get('subscriptions', {})))
         tournaments.difference_update(
-            [tournament["name"] for tournament in await self.grid_api.get_tournaments_list(has_parent=False)]
+            [tournament["name"] for tournament in await self.api.get_tournaments_list(has_parent=False)]
         )
         if not tournaments:
             return await ctx.send("There are no invalid tournaments.")
@@ -352,61 +385,114 @@ class BayesGAMH(commands.Cog):
 
     @mhtool.group(name='query')
     async def mh_query(self, ctx):
-        """Query commands"""
+        """Slow query commands"""
 
-    #@mh_query.command(name='all')
-    #async def mh_q_all(self, ctx, limit: UserInputOptional[int] = 50, *, tag):
-    #    """Get a list of the most recent `limit` games with the provided tag
-    #
-    #    If limit is left blank, 50 games are sent.
-    #    """
-    #    if not await self.has_access(ctx.author, tag):
-    #        return await ctx.send(f"You do not have permission to query the tag `{tag}`.")
-    #    games = sorted(await self.api.get_all_games(tag=tag), key=lambda g: isoparse(g['createdAt']), reverse=True)
-    #    ret = [await self.format_game(game, ctx.author) for game in games[:limit][::-1]]
-    #    if not ret:
-    #        return await ctx.send(f"There are no games with tag `{tag}`."
-    #                              f" Make sure the tag is valid and correctly cased.")
-    #    for page in pagify('\n\n'.join(ret), delims=['\n\n']):
-    #        await ctx.send(page)
+    @mh_query.command(name='all')
+    async def mh_q_all(self, ctx, limit: UserInputOptional[int] = 50, *, tournament):
+        """Get a list of the most recent `limit` games with the provided tournament
 
-    #@mh_query.command(name='new')
-    #async def mh_q_new(self, ctx, limit: UserInputOptional[int] = 50, *, tag):
-    #    """Get only games that aren't on the wiki yet"""
-    #    site = await login_if_possible(ctx, self.bot, 'lol')
-    #
-    #    async def filt(games: Sequence[Game]) -> Iterable[Game]:
-    #        return await self.filter_new(site, games)
-    #
-    #    ret = [await self.format_game(game, ctx.author) for game in
-    #           await self.mh_game_filter(ctx, tag, filt, limit)]
-    #
-    #    if not ret:
-    #        return await ctx.send(f"There are no new games with tag `{tag}`.")
-    #
-    #    for page in pagify('\n\n'.join(ret), delims=['\n\n']):
-    #        await ctx.send(page)
+        If limit is left blank, 50 games are sent.
+        """
+        if not await self.has_access(ctx.author, tournament):
+            return await ctx.send(f"You do not have permission to query the tournament `{tournament}`.")
 
-    #@mh_query.command(name='since')
-    #async def mh_q_since(self, ctx, date: DateConverter, limit: UserInputOptional[int] = 50, *, tag):
-    #    """Get only games since a specific date"""
-    #
-    #    async def filt(games: Iterable[Game]) -> Iterable[Game]:
-    #        return (game for game in games if isoparse(game['createdAt']) > datetime.combine(date, dt_time(), utc))
-    #
-    #    ret = [await self.format_game(game, ctx.author) for game in
-    #           await self.mh_game_filter(ctx, tag, filt, limit)]
-    #
-    #    if not ret:
-    #        return await ctx.send(f"There are no new games with tag `{tag}`.")
-    #
-    #    for page in pagify('\n\n'.join(ret), delims=['\n\n']):
-    #        await ctx.send(page)
+        series_list = sorted(
+            await self.api.get_series_list(tournament_name=tournament,
+                                                return_parent_tournaments=True,
+                                                return_file_list=True,
+                                                include_tournament_children=True),
+            key=lambda s: isoparse(s['startTimeScheduled'])
+        )
 
-    #@mh_query.command(name='getgame')
-    #async def mh_q_getgame(self, ctx, game_id):
-    #    """Get a game by its game ID"""
-    #    await ctx.send(await self.format_game_long(await self.api.get_game(game_id), ctx.author))
+        games = await self.extract_games_from_series_list(series_list)
+
+        ret = [await self.format_game_long(game, ctx.author) for game in games[-limit:]]
+        if not ret:
+            return await ctx.send(f"There are no games with tournament `{tournament}`."
+                                  f" Make sure the tournament is valid and correctly cased.")
+        for page in pagify('\n\n'.join(ret), delims=['\n\n']):
+            await ctx.send(page)
+
+    @mh_query.command(name='new')
+    async def mh_q_new(self, ctx, limit: UserInputOptional[int] = 50, *, tournament):
+        """Get only games that aren't on the wiki yet"""
+        if not await self.has_access(ctx.author, tournament):
+            return await ctx.send(f"You do not have permission to query the tournament `{tournament}`.")
+
+        site = await login_if_possible(ctx, self.bot, 'lol')
+
+        series_list = sorted(
+            await self.api.get_series_list(tournament_name=tournament,
+                                                return_parent_tournaments=True,
+                                                return_file_list=True,
+                                                include_tournament_children=True),
+            key=lambda s: isoparse(s['startTimeScheduled'])
+        )
+
+        if not series_list:
+            return await ctx.send(f"There are no games with tournament `{tournament}`."
+                                  f" Make sure the tournament is valid and correctly cased.")
+
+        games = (await self.filter_new(
+            site,
+            await self.extract_games_from_series_list(series_list, retrieve_game_summary=True)
+        ))[-limit:]
+
+        ret = [await self.format_game_long(game, ctx.author) for game in games]
+
+        if not ret:
+            return await ctx.send(f"There are no new games with tournament `{tournament}`.")
+
+        for page in pagify('\n\n'.join(ret), delims=['\n\n']):
+            await ctx.send(page)
+
+    @mh_query.command(name='since')
+    async def mh_q_since(self, ctx, date: DateConverter, limit: UserInputOptional[int] = 50, *, tournament):
+        """Get only games since a specific date"""
+        if not await self.has_access(ctx.author, tournament):
+            return await ctx.send(f"You do not have permission to query the tournament `{tournament}`.")
+
+        series_list = sorted(
+            await self.api.get_series_list(tournament_name=tournament,
+                                                return_parent_tournaments=True,
+                                                return_file_list=True,
+                                                include_tournament_children=True,
+                                                gte=date),
+            key=lambda s: isoparse(s['startTimeScheduled'])
+        )
+
+        if not series_list:
+            return await ctx.send(f"There are no games with tournament `{tournament}` after the given date."
+                                  f" Make sure the tournament is valid and correctly cased.")
+
+        games = (await self.extract_games_from_series_list(series_list))[-limit:]
+
+        ret = [await self.format_game_long(game, ctx.author) for game in games]
+
+        if not ret:
+            return await ctx.send(f"There are no new games with tournament `{tournament}`.")
+
+        for page in pagify('\n\n'.join(ret), delims=['\n\n']):
+            await ctx.send(page)
+
+    @mh_query.command(name='getgame')
+    async def mh_q_getgame(self, ctx, game_id):
+        """Get a game by its game ID"""
+        game_id = game_id.strip()
+        try:
+            series_data = await self.api.get_series_data_by_platform_game_id(game_id)
+            series_files = await self.api.get_files_by_platform_game_id(game_id)
+        except NotFoundException:
+            return await ctx.send("The game could not be found!")
+        await ctx.send(await self.format_game_long(
+            {
+                "series": series_data,
+                "platform_game_id": game_id,
+                "summary": series_files[0],
+                "details": series_files[1]
+            },
+            ctx.author
+        ))
 
     @mh_query.command(name='findgame')
     async def mh_q_findgame(self, ctx, game_id):
@@ -442,22 +528,8 @@ class BayesGAMH(commands.Cog):
     async def mh_q_getasset(self, ctx, game_id, file_type: FileType):
         """Get a match file by platform game id and file type, file type must be either summary or details"""
         await ctx.send(file=discord.File(BytesIO(json.dumps(
-            await self.grid_api.get_one_file_by_platform_game_id(game_id, file_type)
+            await self.api.get_one_file_by_platform_game_id(game_id, file_type)
         ).encode("utf-8")), f'{game_id}_{file_type}.json'))
-
-    #async def mh_game_filter(self, ctx, tag: Tag,
-    #                         f: Optional[Callable[[Sequence[Game]], Coroutine[None, None, Iterable[Game]]]],
-    #                         limit: int) -> Iterable[Game]:
-    #    if f is None:
-    #        async def f(_): return _
-    #    if not await self.has_access(ctx.author, tag):
-    #        raise ClientInlineTextException(f"You do not have permission to query the tag `{tag}`.")
-    #    games = sorted(await self.api.get_all_games(tag=tag), key=lambda g: isoparse(g['createdAt']), reverse=True)
-    #    if not games:
-    #        raise ClientInlineTextException(f"There are no games with tag `{tag}`."
-    #                                        f" Make sure the tag is valid and correctly cased.")
-    #    invalid_games = await self.config.invalid_games()
-    #    return await f([game for game in games[:limit][::-1] if game['platformGameId'] not in invalid_games])
 
     @mhtool.group(name='subscription', aliases=['subscriptions', 'subscribe'])
     async def mh_subscription(self, ctx):
@@ -595,63 +667,6 @@ class BayesGAMH(commands.Cog):
         for page in pagify('\n'.join(f"{c.id} ({c.guild.name}/{c.name})" for c in channels)):
             await ctx.send(box(page))
 
-    #@mhtool.group(name='cleanup')
-    #async def mh_cleanup(self, ctx):
-    #    """Clean up invalid games"""
-
-    #@mh_cleanup.command(name='game', aliases=['games'])
-    #async def mh_cu_game(self, ctx, *rpgids):
-    #    """Clean up single games"""
-    #    if not rpgids:
-    #        await ctx.send_help()
-    #        return
-    #
-    #    no_perms = []
-    #    invalid_ids = []
-    #
-    #    async with self.config.invalid_games() as invalid_games:
-    #        for rpgid in (rpgid.strip(',') for rpgid in rpgids):
-    #            try:
-    #                game = await self.api.get_game(rpgid)
-    #            except BadRequestException:
-    #                invalid_ids.append(rpgid)
-    #                continue
-    #
-    #            if not await self.has_access(ctx.author, *game['tags']):
-    #                no_perms.append(rpgid)
-    #                continue
-    #
-    #            invalid_games[rpgid] = {'date': time.time()}
-    #
-    #    badmsg = ""
-    #    if invalid_ids:
-    #        badmsg += 'Invalid IDs:\n' + '\n'.join(invalid_ids) + '\n\n'
-    #    if no_perms:
-    #        badmsg += 'Invalid Perms:\n' + '\n'.join(no_perms)
-    #    if badmsg:
-    #        await ctx.send("All games were cleaned up except for the following: \n" + badmsg.strip())
-    #    else:
-    #        await ctx.tick()
-
-    #@mh_cleanup.command(name='tag', aliases=['tags'])
-    #@auth_check('mhadmin')
-    #async def mh_cu_tag(self, ctx, *, tags):
-    #    """Clean up tags"""
-    #    did_action = False
-    #
-    #    site = await login_if_possible(ctx, self.bot, 'lol')
-    #    async with self.config.invalid_games() as invalid_games:
-    #        for tag in (tag.strip() for tag in tags.split(',')):
-    #            games = await self.filter_new(site, await self.api.get_all_games(tag=tag))
-    #            for game in games:
-    #                invalid_games[game['platformGameId']] = {'date': time.time()}
-    #                did_action = True
-    #
-    #    if not did_action:
-    #        await ctx.send("No games were cleaned up. Make sure there are new games in this tag.")
-    #    else:
-    #        await ctx.tick()
-
     @mhtool.group(name='gset')
     @auth_check('mhadmin')
     async def mh_gset(self, ctx):
@@ -665,19 +680,6 @@ class BayesGAMH(commands.Cog):
         await self.config.grid_gte.set(str(date.strip()))
         await ctx.tick()
 
-    async def format_game(self, game: dict) -> str:
-        summary = await self.grid_api.get_file("summary", game["series"]["id"], game["sequence"])
-        platform_game_id = f"{summary['platformId']}_{summary['gameId']}"
-        tournament = game["series"]["tournament"]["name"]
-
-        status = f" ({summary['status']})" if summary['status'] != "FINISHED" else ""
-
-        return (f"`{platform_game_id}`{status} {self.get_ready_to_parse_string(game['files'], game['sequence'])}\n"
-                f"\t\tName: {summary['gameName']}\n"
-                f"\t\tStart Time: {self.format_timestamp(round(summary['gameCreation']/1000))}\n"
-                f"\t\tTournament: `{tournament}`\n"
-                f"\t\tSeries ID: `{game['series']['id']}`")
-
     async def format_game_long(self, game: dict, user: Optional[User]) -> str:
         tournament = game["series"]["tournament"]["name"]
 
@@ -688,7 +690,8 @@ class BayesGAMH(commands.Cog):
         teams = winner = 'Unknown'
         has_winner = False
 
-        summary = await self.grid_api.get_file("summary", game["series"]["id"], game["sequence"])
+        summary = (game.get("summary") or
+                   await self.api.get_file("summary", game["series"]["id"], game["sequence"]))
         platform_game_id = f"{summary['platformId']}_{summary['gameId']}"
         if "participants" in summary and len(summary['participants'][::5]) == 2:
             t1, t2 = summary['participants'][::5]
@@ -709,7 +712,8 @@ class BayesGAMH(commands.Cog):
             teams = f"{team1_short} vs {team2_short}"
             if use_spoiler_tags:
                 winner = spoiler(winner.ljust(30))
-        return (f"`{platform_game_id}`{self.get_ready_to_parse_string(game['files'], game['sequence'], has_winner)}\n"
+        ready_to_parse_string = self.get_ready_to_parse_string(game, has_winner)
+        return (f"`{platform_game_id}`{ready_to_parse_string}\n"
                 f"\t\tSeries ID: `{game['series']['id']}`\n"
                 f"\t\tName: {summary['gameName']}\n"
                 f"\t\tTeams: {teams}\n"
@@ -718,10 +722,13 @@ class BayesGAMH(commands.Cog):
                 f"\t\tTournament: `{tournament}`")
 
     @staticmethod
-    def get_ready_to_parse_string(files: List, game_sequence: int, has_winner: bool = True):
+    def get_ready_to_parse_string(game: dict, has_winner: bool = True):
         if not has_winner:
             return cancellation_message("Not ready to parse")
-        if f"state-details-riot-game-{game_sequence}" not in files:
+        if (
+                (game.get("files") and f"state-details-riot-game-{game['sequence']}" not in game["files"]) or
+                (game.get("summary") and not game.get("details"))
+        ):
             return confirmation_message("Ready to parse, but no drakes (Possible chronobreak. Please check back later)")
         return confirmation_message("Ready to parse")
 
@@ -729,21 +736,21 @@ class BayesGAMH(commands.Cog):
     def format_timestamp(timestamp: int) -> str:
         return f"<t:{timestamp}:F>"
 
-    #@staticmethod
-    #async def filter_new(site: EsportsClient, games: Sequence[Game]) -> List[Game]:
-    #    """Returns only new games from a list of games."""
-    #    if not games:
-    #        return []
-    #
-    #    all_ids = [repr(game['platformGameId'].strip()) for game in games]
-    #    where = f"RiotPlatformGameId IN ({','.join(all_ids)}) AND HasRpgidInput = '1'"
-    #
-    #    result = site.cargo_client.query(tables="MatchScheduleGame",
-    #                                     fields="RiotPlatformGameId",
-    #                                     where=where)
-    #
-    #    old_ids = [row['RiotPlatformGameId'] for row in result]
-    #    return [game for game in games if game['platformGameId'] not in old_ids]
+    @staticmethod
+    async def filter_new(site: EsportsClient, games: list) -> list:
+        """Returns only new games from a list of games."""
+        if not games:
+            return []
+
+        all_ids = [repr(game['platform_game_id'].strip()) for game in games]
+        where = f"RiotPlatformGameId IN ({','.join(all_ids)}) AND HasRpgidInput = '1'"
+
+        result = site.cargo_client.query(tables="MatchScheduleGame",
+                                         fields="RiotPlatformGameId",
+                                         where=where)
+
+        old_ids = [row['RiotPlatformGameId'] for row in result]
+        return [game for game in games if game['platform_game_id'] not in old_ids]
 
     async def has_access(self, user, tournament):
         if has_perm('mhadmin', user, self.bot) or user.id in self.bot.owner_ids:
