@@ -1,0 +1,6 @@
+{
+  "author": ["arbolitoloco"],
+  "name": "ParticipantsFlagPopulate",
+  "description": "Automatically generates Team Rosters for Leaguepedia, using scoreboard data",
+  "requirements": ["mwrogue", "esports_cog_utils"]
+}
