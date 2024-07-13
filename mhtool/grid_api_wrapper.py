@@ -1,6 +1,6 @@
 from redbot.core.bot import Red
 from tsutils.errors import NoAPIKeyException
-from bayesgamh.errors import RateLimitException, BadRequestException, NotFoundException
+from mhtool.errors import RateLimitException, BadRequestException, NotFoundException
 
 import backoff
 
@@ -14,18 +14,14 @@ import re
 FileType = Literal['summary', 'details']
 
 
-class Tournament(TypedDict):
+class _TournamentBase(TypedDict):
     id: str
     name: str
-    parent: dict
-    children: dict
 
 
-class Series(TypedDict):
-    id: str
-    startTimeScheduled: str
-    tournament: Tournament
-    file_list: list
+class Tournament(_TournamentBase, total=False):
+    parent: _TournamentBase
+    children: list[_TournamentBase]
 
 
 class GridFileData(TypedDict):
@@ -34,6 +30,13 @@ class GridFileData(TypedDict):
     status: str
     fileName: str
     fullURL: str
+
+
+class Series(TypedDict):
+    id: str
+    startTimeScheduled: str
+    tournament: Tournament
+    file_list: list[GridFileData]
 
 
 LOL_GRID_TITLE_ID = 3
@@ -87,7 +90,7 @@ class GridAPIWrapper:
         }
 
     @staticmethod
-    async def _cast_datetime(date: Union[str, datetime, None]) -> str:
+    async def _cast_datetime(date: Union[str, datetime, None]) -> Union[str, None]:
         if isinstance(date, datetime):
             return date.isoformat()
 
@@ -100,7 +103,7 @@ class GridAPIWrapper:
 
         return _str
 
-    async def _do_graphql_pagination(
+    async def _do_graphql_paginated_query(
             self,
             query_name: str,
             query: str,
@@ -201,7 +204,7 @@ class GridAPIWrapper:
             "includeChildren": include_tournament_children
         }
 
-        series_list = await self._do_graphql_pagination("allSeries", query, variables, limit)
+        series_list = await self._do_graphql_paginated_query("allSeries", query, variables, limit)
 
         ret = []
 
@@ -214,7 +217,7 @@ class GridAPIWrapper:
 
         return ret
 
-    async def get_parent_tournament(self, tournament_id: Union[str, int]) -> Tournament:
+    async def get_parent_tournament(self, tournament_id: str) -> Tournament:
         if tournament_id in self.tournament_cache:
             return self.tournament_cache[tournament_id]
 
@@ -250,7 +253,7 @@ class GridAPIWrapper:
         response = (await self._do_graphql_query(query=query, variables=variables))["series"]
 
         if response is None:
-            raise BadRequestException(f"Series ID {series_id} was not found!")
+            raise NotFoundException(f"Series ID {series_id} could not be found!")
 
         return response
 
@@ -273,7 +276,7 @@ class GridAPIWrapper:
         response = (await self._do_graphql_query(query, variables))["tournament"]
 
         if response is None:
-            raise BadRequestException(f"Tournament ID {tournament_id} was not found!")
+            raise NotFoundException(f"Tournament ID {tournament_id} could not be found!")
 
         return response
 
@@ -328,7 +331,7 @@ class GridAPIWrapper:
             "tournamentName": tournament_name
         }
 
-        return await self._do_graphql_pagination("tournaments", query, variables, limit)
+        return await self._do_graphql_paginated_query("tournaments", query, variables, limit)
 
     async def _do_graphql_game_id_by_external_id_query(self, platform_game_id: str) -> str:
         query = """
@@ -345,7 +348,12 @@ class GridAPIWrapper:
             "externalGameId": platform_game_id,
         }
 
-        return (await self._do_graphql_query(query=query, variables=variables))["gameIdByExternalId"]
+        response = (await self._do_graphql_query(query=query, variables=variables))["gameIdByExternalId"]
+
+        if response is None:
+            raise NotFoundException
+
+        return response
 
     async def _do_graphql_query(self, query: str, variables: dict = None) -> dict:
         service = "central-data/graphql"
@@ -407,9 +415,7 @@ class GridAPIWrapper:
 
     async def get_series_data_by_platform_game_id(self, platform_game_id: str) -> dict:
         grid_game_id = await self._do_graphql_game_id_by_external_id_query(platform_game_id)
-        if grid_game_id is None:
-            raise NotFoundException
-        series_data = (await self.get_series_list(grid_game_ids=grid_game_id))
+        series_data = await self.get_series_list(grid_game_ids=grid_game_id)
         if not series_data:
             raise NotFoundException
         return series_data[0]

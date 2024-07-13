@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import datetime
 from datetime import timedelta, timezone
 from io import BytesIO
-from typing import Any, Callable, NoReturn, Optional
+from typing import Any, Callable, NoReturn, Optional, TypedDict, Union
 
 import aiohttp
 import discord
@@ -23,23 +23,33 @@ from tsutils.helper_functions import repeating_timer
 from tsutils.user_interaction import cancellation_message, confirmation_message, get_user_confirmation, \
     send_cancellation_message
 
-from bayesgamh.errors import NotFoundException
-from bayesgamh.converters import DateConverter
+from mhtool.errors import NotFoundException
+from mhtool.converters import DateConverter
 
-from bayesgamh.grid_api_wrapper import GridAPIWrapper, FileType, Series, GridFileData
+from mhtool.grid_api_wrapper import GridAPIWrapper, FileType, Series, GridFileData
 
-logger = logging.getLogger('red.esports-wiki-cogs.bayesgamh')
+
+class Game(TypedDict, total=False):
+    series: Series
+    files: list
+    sequence: str
+    summary: dict
+    details: Union[dict, None]
+    platform_game_id: str
+
+
+logger = logging.getLogger('red.esports-wiki-cogs.mhtool')
 
 
 async def is_editor(ctx) -> bool:
-    GAMHCOG = ctx.bot.get_cog("BayesGAMH")
+    GAMHCOG = ctx.bot.get_cog("MHTool")
     return (ctx.author.id in ctx.bot.owner_ids
             or has_perm('mhadmin', ctx.author, ctx.bot)
             or await GAMHCOG.config.user(ctx.author).allowed_tournaments())
 
 
 async def is_dm_or_whitelisted(ctx) -> bool:
-    GAMHCOG = ctx.bot.get_cog("BayesGAMH")
+    GAMHCOG = ctx.bot.get_cog("MHTool")
     if not (isinstance(ctx.channel, DMChannel)
             or str(ctx.channel.id) in await GAMHCOG.config.allowed_channels()):
         raise commands.UserFeedbackCheckFailure("This command is only available in"
@@ -47,7 +57,7 @@ async def is_dm_or_whitelisted(ctx) -> bool:
     return True
 
 
-class BayesGAMH(commands.Cog):
+class MHTool(commands.Cog):
     def __init__(self, bot: Red, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.bot = bot
@@ -118,7 +128,7 @@ class BayesGAMH(commands.Cog):
         )
 
     @staticmethod
-    async def get_game_file_list(series: Series, game_sequence) -> list:
+    async def get_game_file_list(series: Series, game_sequence: str) -> list:
         ret = []
 
         for file_data in series["file_list"]:
@@ -129,7 +139,7 @@ class BayesGAMH(commands.Cog):
 
     async def extract_games_from_series_list(self, series_list: list[Series],
                                              retrieve_game_summary: Optional[bool] = False,
-                                             filt: Optional[Callable] = None, **kwargs) -> list:
+                                             filt: Optional[Callable] = None, **kwargs) -> list[Game]:
         games = {}
 
         if filt is None:
@@ -166,7 +176,7 @@ class BayesGAMH(commands.Cog):
             return True
         return False
 
-    async def do_subscriptions(self, series_cache: list) -> None:
+    async def do_subscriptions(self, series_cache: list) -> NoReturn:
         async with self.subscription_lock, self.config.seen() as seen:
             tournaments_to_uid = defaultdict(set)
             for u_id, data in (await self.config.all_users()).items():
@@ -201,7 +211,7 @@ class BayesGAMH(commands.Cog):
             for series in changed_series:
                 seen[series['id']] = [file["id"] for file in series['file_list']]
 
-    async def do_auto_channel(self, series_cache: list) -> None:
+    async def do_auto_channel(self, series_cache: list) -> NoReturn:
         async with self.config.autochannel_seen() as seen:
             changed_series = await self.get_changed_series(series_cache, seen)
 
@@ -226,7 +236,7 @@ class BayesGAMH(commands.Cog):
     @commands.check(is_editor)
     @commands.check(is_dm_or_whitelisted)
     async def mhtool(self, ctx):
-        """A subcommand for all Bayes GAMH commands"""
+        """A subcommand for all MHTool commands"""
 
     @mhtool.group(name='tournament', aliases=['tournaments', 'tag', 'tags'])
     @auth_check('mhadmin')
@@ -398,9 +408,9 @@ class BayesGAMH(commands.Cog):
 
         series_list = sorted(
             await self.api.get_series_list(tournament_name=tournament,
-                                                return_parent_tournaments=True,
-                                                return_file_list=True,
-                                                include_tournament_children=True),
+                                           return_parent_tournaments=True,
+                                           return_file_list=True,
+                                           include_tournament_children=True),
             key=lambda s: isoparse(s['startTimeScheduled'])
         )
 
@@ -423,9 +433,9 @@ class BayesGAMH(commands.Cog):
 
         series_list = sorted(
             await self.api.get_series_list(tournament_name=tournament,
-                                                return_parent_tournaments=True,
-                                                return_file_list=True,
-                                                include_tournament_children=True),
+                                           return_parent_tournaments=True,
+                                           return_file_list=True,
+                                           include_tournament_children=True),
             key=lambda s: isoparse(s['startTimeScheduled'])
         )
 
@@ -448,16 +458,18 @@ class BayesGAMH(commands.Cog):
 
     @mh_query.command(name='since')
     async def mh_q_since(self, ctx, date: DateConverter, limit: UserInputOptional[int] = 50, *, tournament):
-        """Get only games since a specific date"""
+        """Get only games since a specific date
+
+        The results are filtered using the scheduled start time for the series corresponding to each game"""
         if not await self.has_access(ctx.author, tournament):
             return await ctx.send(f"You do not have permission to query the tournament `{tournament}`.")
 
         series_list = sorted(
             await self.api.get_series_list(tournament_name=tournament,
-                                                return_parent_tournaments=True,
-                                                return_file_list=True,
-                                                include_tournament_children=True,
-                                                gte=date),
+                                           return_parent_tournaments=True,
+                                           return_file_list=True,
+                                           include_tournament_children=True,
+                                           gte=date),
             key=lambda s: isoparse(s['startTimeScheduled'])
         )
 
@@ -680,7 +692,7 @@ class BayesGAMH(commands.Cog):
         await self.config.grid_gte.set(str(date.strip()))
         await ctx.tick()
 
-    async def format_game_long(self, game: dict, user: Optional[User]) -> str:
+    async def format_game_long(self, game: Game, user: Optional[User]) -> str:
         tournament = game["series"]["tournament"]["name"]
 
         subs = {} if user is None else await self.config.user(user).subscriptions()
@@ -722,7 +734,7 @@ class BayesGAMH(commands.Cog):
                 f"\t\tTournament: `{tournament}`")
 
     @staticmethod
-    def get_ready_to_parse_string(game: dict, has_winner: bool = True):
+    def get_ready_to_parse_string(game: Game, has_winner: bool = True):
         if not has_winner:
             return cancellation_message("Not ready to parse")
         if (
@@ -737,7 +749,7 @@ class BayesGAMH(commands.Cog):
         return f"<t:{timestamp}:F>"
 
     @staticmethod
-    async def filter_new(site: EsportsClient, games: list) -> list:
+    async def filter_new(site: EsportsClient, games: list[Game]) -> list:
         """Returns only new games from a list of games."""
         if not games:
             return []
