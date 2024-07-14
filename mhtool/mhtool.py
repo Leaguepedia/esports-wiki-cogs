@@ -595,28 +595,30 @@ class MHTool(commands.Cog):
         await self.config.user(ctx.author).subscriptions.set({})
         await ctx.tick()
 
-    @mh_subscription.group(name='set')
-    async def mh_s_set(self, ctx):
-        """Change settings about your subscriptions"""
+    @mh_subscription.group(name='settings', aliases=["set"])
+    async def mh_s_settings(self, ctx):
+        """Change and show settings about your subscriptions"""
 
-    @mh_s_set.command(name='spoiler')
+    @mh_s_settings.command(name='spoiler')
     async def mh_s_s_spoiler(self, ctx, *, tournament):
+        """Add spoiler tags around the winner in sent messages"""
         async with self.config.user(ctx.author).subscriptions() as subs:
             if tournament not in subs:
                 return await ctx.send("You're not subscribed to that tournament.")
             subs[tournament]['spoiler'] = True
         await ctx.tick()
 
-    @mh_s_set.command(name='unspoiler')
+    @mh_s_settings.command(name='unspoiler')
     async def mh_s_s_unspoiler(self, ctx, *, tournament):
+        """Stop adding spoiler tags around the winner in sent messages"""
         async with self.config.user(ctx.author).subscriptions() as subs:
             if tournament not in subs:
                 return await ctx.send("You're not subscribed to that tournament.")
             subs[tournament]['spoiler'] = False
         await ctx.tick()
 
-    @mh_subscription.group(name='settings')
-    async def mh_s_settings(self, ctx, *, tournament):
+    @mh_s_settings.command(name='list')
+    async def mh_s_s_list(self, ctx, *, tournament):
         """Show the settings of a subscription"""
         subs = await self.config.user(ctx.author).subscriptions()
         if tournament not in subs:
