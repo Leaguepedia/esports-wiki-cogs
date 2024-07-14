@@ -365,8 +365,8 @@ class MHTool(commands.Cog):
         """List all available tournaments sorted alphabetically by length"""
         for page in pagify(
                 ', '.join(map(inline, sorted(
-                    [tournament["name"] for tournament in
-                     ["ALL"] + await self.api.get_tournaments_list(has_parent=False)]
+                    ["ALL"] + [tournament["name"] for tournament in
+                               await self.api.get_tournaments_list(has_parent=False)]
                 ))), delims=[', ']
         ):
             await ctx.send(page.strip(', '))
@@ -391,8 +391,7 @@ class MHTool(commands.Cog):
             tournaments.update(set(data.get('allowed_tournaments', {})))
             tournaments.update(set(data.get('subscriptions', {})))
         tournaments.difference_update(
-            [tournament["name"] for tournament in
-             ["ALL"] + await self.api.get_tournaments_list(has_parent=False)]
+            ["ALL"] + [tournament["name"] for tournament in await self.api.get_tournaments_list(has_parent=False)]
         )
         if not tournaments:
             return await ctx.send("There are no invalid tournaments.")
