@@ -246,6 +246,7 @@ class MHTool(commands.Cog):
     @mh_tournament.command(name='add')
     async def mh_t_add(self, ctx, user: discord.User, *, tournament):
         """Add an allowed tournament to a user"""
+        tournament = (await self.api.get_parent_tournament(tournament_name=tournament))["name"]
         async with self.config.user(user).allowed_tournaments() as tournaments:
             if tournament not in tournaments:
                 tournaments[tournament] = {'date': time.time()}
@@ -256,6 +257,8 @@ class MHTool(commands.Cog):
     @mh_tournament.command(name='remove', aliases=['rm', 'delete', 'del'])
     async def mh_t_remove(self, ctx, user: discord.User, *, tournament=None):
         """Remove an allowed tournament from a user"""
+        if tournament is not None:
+            tournament = (await self.api.get_parent_tournament(tournament_name=tournament))["name"]
         async with self.config.user(user).allowed_tournaments() as tournaments:
             if tournament is None:
                 if await get_user_confirmation(
@@ -550,6 +553,7 @@ class MHTool(commands.Cog):
     @mh_subscription.command(name='add')
     async def mh_s_add(self, ctx, *, tournament):
         """Subscribe to a tournament"""
+        tournament = (await self.api.get_parent_tournament(tournament_name=tournament))["name"]
         async with self.config.user(ctx.author).subscriptions() as subs:
             if tournament in subs:
                 return await ctx.send("You're already subscribed to that tournament.")
@@ -563,6 +567,7 @@ class MHTool(commands.Cog):
     @mh_subscription.command(name='remove', aliases=['rm', 'delete', 'del'])
     async def mh_s_remove(self, ctx, *, tournament):
         """Unsubscribe from a tournament"""
+        tournament = (await self.api.get_parent_tournament(tournament_name=tournament))["name"]
         async with self.config.user(ctx.author).subscriptions() as subs:
             if tournament not in subs:
                 return await ctx.send("You're not subscribed to that tournament.")

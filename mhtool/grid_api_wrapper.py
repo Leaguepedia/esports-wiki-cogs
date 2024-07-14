@@ -71,7 +71,7 @@ class GridAPIWrapper:
         self.bot = bot
         self.session = session
 
-        self.tournament_cache = {}
+        self._tournament_cache = {"parent": {}, "name_to_id": {}}
 
         self.api_token = None
 
@@ -217,22 +217,37 @@ class GridAPIWrapper:
 
         return ret
 
-    async def get_parent_tournament(self, tournament_id: str) -> Tournament:
-        if tournament_id in self.tournament_cache:
-            return self.tournament_cache[tournament_id]
+    async def get_tournament_id(self, tournament_name: str) -> str:
+        if tournament_name in self._tournament_cache["name_to_id"]:
+            return self._tournament_cache["name_to_id"][tournament_name]
+
+        tournament_id_response = await self.get_tournaments_list(tournament_name=tournament_name, limit=1)
+        if not tournament_id_response:
+            raise NotFoundException(f"The tournament id for {tournament_name} could not be found")
+        self._tournament_cache["name_to_id"][tournament_name] = tournament_id_response[0]["id"]
+
+        return self._tournament_cache["name_to_id"][tournament_name]
+
+    async def get_parent_tournament(self, tournament_id: str = None, tournament_name: str = None) -> Tournament:
+        if tournament_name is not None:
+            tournament_id = await self.get_tournament_id(tournament_name)
+
+        if tournament_id in self._tournament_cache["parent"]:
+            return self._tournament_cache["parent"][tournament_id]
 
         children = []
         while True:
             children.append(tournament_id)
             response = await self.get_tournament(tournament_id)
+            self._tournament_cache["name_to_id"][response["name"]] = response["id"]
             if response["parent"] is None:
                 break
             tournament_id = response["parent"]["id"]
 
         for child in children:
-            self.tournament_cache[child] = response
+            self._tournament_cache["parent"][child] = response
 
-        return self.tournament_cache[tournament_id]
+        return self._tournament_cache["parent"][tournament_id]
 
     async def get_series(self, series_id: Union[str, int]) -> Series:
         query = f"""
