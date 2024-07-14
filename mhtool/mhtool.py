@@ -501,6 +501,9 @@ class MHTool(commands.Cog):
             series_files = await self.api.get_files_by_platform_game_id(game_id)
         except NotFoundException:
             return await ctx.send("The game could not be found!")
+        tournament_name = series_data["tournament"]["name"]
+        if not await self.has_access(ctx.author, tournament_name):
+            return await ctx.send(f'You do not have permission to query the tournament `{tournament_name}`.')
         await ctx.send(await self.format_game_long(
             {
                 "series": series_data,
