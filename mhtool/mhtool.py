@@ -246,7 +246,8 @@ class MHTool(commands.Cog):
     @mh_tournament.command(name='add')
     async def mh_t_add(self, ctx, user: discord.User, *, tournament):
         """Add an allowed tournament to a user"""
-        tournament = (await self.api.get_parent_tournament(tournament_name=tournament))["name"]
+        if tournament != "ALL":
+            tournament = (await self.api.get_parent_tournament(tournament_name=tournament))["name"]
         async with self.config.user(user).allowed_tournaments() as tournaments:
             if tournament not in tournaments:
                 tournaments[tournament] = {'date': time.time()}
@@ -257,7 +258,7 @@ class MHTool(commands.Cog):
     @mh_tournament.command(name='remove', aliases=['rm', 'delete', 'del'])
     async def mh_t_remove(self, ctx, user: discord.User, *, tournament=None):
         """Remove an allowed tournament from a user"""
-        if tournament is not None:
+        if tournament is not None and tournament != "ALL":
             tournament = (await self.api.get_parent_tournament(tournament_name=tournament))["name"]
         async with self.config.user(user).allowed_tournaments() as tournaments:
             if tournament is None:
@@ -364,7 +365,8 @@ class MHTool(commands.Cog):
         """List all available tournaments sorted alphabetically by length"""
         for page in pagify(
                 ', '.join(map(inline, sorted(
-                    [tournament["name"] for tournament in await self.api.get_tournaments_list(has_parent=False)]
+                    [tournament["name"] for tournament in
+                     ["ALL"] + await self.api.get_tournaments_list(has_parent=False)]
                 ))), delims=[', ']
         ):
             await ctx.send(page.strip(', '))
@@ -389,7 +391,8 @@ class MHTool(commands.Cog):
             tournaments.update(set(data.get('allowed_tournaments', {})))
             tournaments.update(set(data.get('subscriptions', {})))
         tournaments.difference_update(
-            [tournament["name"] for tournament in await self.api.get_tournaments_list(has_parent=False)]
+            [tournament["name"] for tournament in
+             ["ALL"] + await self.api.get_tournaments_list(has_parent=False)]
         )
         if not tournaments:
             return await ctx.send("There are no invalid tournaments.")
