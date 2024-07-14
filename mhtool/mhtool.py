@@ -495,7 +495,7 @@ class MHTool(commands.Cog):
         """Get a game by its game ID"""
         game_id = game_id.strip()
         try:
-            series_data = await self.api.get_series_data_by_platform_game_id(game_id)
+            series_data = await self.api.get_series_data_by_platform_game_id(game_id, return_parent_tournament=True)
             series_files = await self.api.get_files_by_platform_game_id(game_id)
         except NotFoundException:
             return await ctx.send("The game could not be found!")

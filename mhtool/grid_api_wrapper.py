@@ -428,9 +428,11 @@ class GridAPIWrapper:
 
         return summary, details
 
-    async def get_series_data_by_platform_game_id(self, platform_game_id: str) -> dict:
+    async def get_series_data_by_platform_game_id(self, platform_game_id: str,
+                                                  return_parent_tournament: bool = False) -> dict:
         grid_game_id = await self._do_graphql_game_id_by_external_id_query(platform_game_id)
-        series_data = await self.get_series_list(grid_game_ids=grid_game_id)
+        series_data = await self.get_series_list(grid_game_ids=grid_game_id,
+                                                 return_parent_tournaments=return_parent_tournament)
         if not series_data:
             raise NotFoundException
         return series_data[0]
