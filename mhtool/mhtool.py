@@ -742,10 +742,9 @@ class MHTool(commands.Cog):
     def get_ready_to_parse_string(game: Game, has_winner: bool = True):
         if not has_winner:
             return cancellation_message("Not ready to parse")
-        if (
-                (game.get("files") and f"state-details-riot-game-{game['sequence']}" not in game["files"]) or
-                (game.get("summary") and not game.get("details"))
-        ):
+        if game.get("files") and f"state-details-riot-game-{game['sequence']}" not in game["files"]:
+            return confirmation_message("Ready to parse, but no drakes (Possible chronobreak. Please check back later)")
+        if not game.get("files") and not game.get("details"):
             return confirmation_message("Ready to parse, but no drakes (Possible chronobreak. Please check back later)")
         return confirmation_message("Ready to parse")
 
