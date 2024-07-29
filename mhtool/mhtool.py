@@ -428,9 +428,26 @@ class MHTool(commands.Cog):
         for page in pagify('\n\n'.join(ret), delims=['\n\n']):
             await ctx.send(page)
 
-    @mh_query.command(name='new')
-    async def mh_q_new(self, ctx, limit: UserInputOptional[int] = 50, *, tournament):
-        """Get only games that aren't on the wiki yet"""
+    @mh_query.command(name='new', usage='[--limit=50] [--since=yyyy-mm-dd] <tournament>')
+    async def mh_q_new(self, ctx, *, params: str):
+        """Get only games that aren't on the wiki yet. If since is not provided, it defaults to six months back."""
+        limit = 50
+        since = datetime.now(timezone.utc) - timedelta(days=30 * 6)
+
+        if "--limit" not in params and "--since" not in params:
+            tournament = params
+        else:
+            params = params.split(" ")
+            tournament = []
+            for param in params:
+                if "--since" in param:
+                    since = await DateConverter.convert(ctx, param.split("=")[-1])
+                elif "--limit" in param:
+                    limit = int(param.split("=")[-1])
+                else:
+                    tournament.append(param)
+            tournament = " ".join(tournament)
+
         if not await self.has_access(ctx.author, tournament):
             return await ctx.send(f"You do not have permission to query the tournament `{tournament}`.")
 
@@ -440,7 +457,8 @@ class MHTool(commands.Cog):
             await self.api.get_series_list(tournament_name=tournament,
                                            return_parent_tournaments=True,
                                            return_file_list=True,
-                                           include_tournament_children=True),
+                                           include_tournament_children=True,
+                                           gte=since),
             key=lambda s: isoparse(s['startTimeScheduled'])
         )
 
