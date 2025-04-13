@@ -195,7 +195,7 @@ class AutoRostersRunner(TaskRunner):
         where = self.get_where_player_data(self.rosters_data)
         response = self.site.cargo_client.query(
             tables="Players=P, PlayerRedirects=PR, Alphabets=A",
-            join_on="PR.OverviewPage=P.OverviewPage, P.NameAlphabet=A.Alphabet",
+            join_on="P.OverviewPage=PR.OverviewPage, P.NameAlphabet=A.Alphabet",
             where=where,
             fields=["CONCAT(CASE WHEN A.IsTransliterated=\"1\" THEN P.NameFull ELSE P.Name END)=name", "P.Player",
                     "P.NationalityPrimary=NP", "P.Country", "P.Residency"]
@@ -348,6 +348,6 @@ class AutoRostersRunner(TaskRunner):
 
 
 if __name__ == '__main__':
-    credentials = AuthCredentials(user_file='bot')
+    credentials = AuthCredentials(user_file='botcov')
     lol_site = EsportsClient('lol', credentials=credentials)
-    AutoRostersRunner(lol_site, "Greek Legends League/2023 Season/Pro-Am").run()
+    AutoRostersRunner(lol_site, "Liga Nexo/2025 Season/Split 2").run()
