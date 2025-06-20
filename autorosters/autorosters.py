@@ -26,15 +26,15 @@ class AutoRosters(commands.Cog):
         runner.run()
         username = site.credentials.username
         username = username.split('@')[0] if "@" in username else username
-        sandbox_page = f"\nhttps://lol.fandom.com/wiki/User:{username}/Team_Rosters_Sandbox".replace(" ", "_")
-        rosters_page = f"\nhttps://lol.fandom.com/wiki/{overview_page}/Team_Rosters".replace(" ", "_")
+        sandbox_page = f"https://lol.fandom.com/wiki/User:{username}/Team_Rosters_Sandbox".replace(" ", "_")
+        rosters_page = f"https://lol.fandom.com/wiki/{overview_page}/Team_Rosters".replace(" ", "_")
         done_message = "Okay, done!"
         if query_coaches:
             done_message += " **Remember to complete the coaches' fields!**"
         else:
             done_message += " **Remember the generated content has no coaches!**"
-        await ctx.send(f"{done_message}\nHere is the sandbox page with the new content: <{sandbox_page}>\n"
-                       f"Here is where you should copy it: <{rosters_page}>")
+        await ctx.send(f"{done_message}\nHere is the sandbox page with the new content:\n<{sandbox_page}>\n"
+                       f"Here is where you should copy it:\n<{rosters_page}>")
         await runner.send_warnings(ctx)
     
     @commands.hybrid_command(name="autorosters", pass_context=True)
