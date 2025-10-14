@@ -1,4 +1,5 @@
 from mwrogue.esports_client import EsportsClient
+from esports_cog_utils import utils
 from redbot.core import commands, app_commands
 from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import pagify
@@ -21,10 +22,9 @@ class SuperWLH(commands.Cog):
     def __init__(self, bot: Red, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.bot = bot
-        self.site = EsportsClient('lol')
 
-    async def query(self, table, key_field, player):
-        return self.site.cargo_client.query(
+    async def query(self, site, table, key_field, player):
+        return site.cargo_client.query(
             tables=f"{table}=T",
             where=f"T.{key_field} = '{player}'",
             fields=f"T._pageName=Page",
@@ -32,9 +32,10 @@ class SuperWLH(commands.Cog):
         )
 
     async def run(self, player, ctx):
+        site = await utils.login_if_possible(ctx, self.bot, 'lol')
         is_message_sent = False
         for table, key_field in self.CARGO_TABLES.items():
-            response = await self.query(table, key_field, player)
+            response = await self.query(site, table, key_field, player)
             if response:
                 message = []
                 for item in response:
