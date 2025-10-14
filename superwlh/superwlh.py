@@ -1,4 +1,3 @@
-from mwrogue.esports_client import EsportsClient
 from esports_cog_utils import utils
 from redbot.core import commands, app_commands
 from redbot.core.bot import Red
