@@ -138,7 +138,7 @@ class MHTool(commands.Cog):
         return ret
 
     async def extract_games_from_series_list(self, series_list: list[Series],
-                                             retrieve_game_summary: Optional[bool] = False,
+                                             retrieve_game_summary: Optional[bool] = True,
                                              filt: Optional[Callable] = None, **kwargs) -> list[Game]:
         games = {}
 
@@ -151,19 +151,27 @@ class MHTool(commands.Cog):
                 game_sequence = file_data["id"].split("-")[-1]
                 game_id = f"{series['id']}_{game_sequence}"
 
+                if game_id in games.keys():
+                    continue
+
+                if not await filt(series, file_data, kwargs):
+                    continue
+
                 game = {"sequence": game_sequence, "series": series,
                         "files": await self.get_game_file_list(series, game_sequence)}
 
                 if retrieve_game_summary:
-                    game["summary"] = await self.api.get_file("summary", series["id"], game_sequence)
-                    platform_id = game["summary"]["platformId"]
-                    r_game_id = game["summary"]["gameId"]
-                    game["platform_game_id"] = f"{platform_id}_{r_game_id}"
+                    try:
+                        game["summary"] = await self.api.get_file("summary", series["id"], game_sequence)
+                        platform_id = game["summary"]["platformId"]
+                        r_game_id = game["summary"]["gameId"]
+                        game["platform_game_id"] = f"{platform_id}_{r_game_id}"
+                    except NotFoundException:
+                        # if no summary file is available and we requested to retrieve it
+                        # we act as if the game didnt exist
+                        continue
 
-                if not await filt(series, file_data, kwargs):
-                    continue
-                if game_id not in games:
-                    games[game_id] = game
+                games[game_id] = game
 
         return list(games.values())
 
@@ -175,6 +183,12 @@ class MHTool(commands.Cog):
         if file_data["id"] not in seen_files:
             return True
         return False
+    
+    async def append_new_files_to_seen(seen: dict, game: Game):
+        seen_series = seen[game['series']['id']]
+        for file in game['files']:
+            if file not in seen_series:
+                seen_series.append(file)
 
     async def do_subscriptions(self, series_cache: list) -> NoReturn:
         async with self.subscription_lock, self.config.seen() as seen:
@@ -208,8 +222,8 @@ class MHTool(commands.Cog):
                 except discord.Forbidden:
                     logger.warning(f"Unable to send subscription message to user {user}. (Forbidden)")
 
-            for series in changed_series:
-                seen[series['id']] = [file["id"] for file in series['file_list']]
+            for game in changed_games:
+                await self.append_new_files_to_seen(seen, game)
 
     async def do_auto_channel(self, series_cache: list) -> NoReturn:
         async with self.config.autochannel_seen() as seen:
@@ -229,8 +243,8 @@ class MHTool(commands.Cog):
                     for page in pagify('\n\n'.join(msg)):
                         await channel.send(page)
 
-            for series in changed_series:
-                seen[series['id']] = [file["id"] for file in series['file_list']]
+            for game in changed_games:
+                await self.append_new_files_to_seen(seen, game)
 
     @commands.group()
     @commands.check(is_editor)

@@ -467,7 +467,7 @@ class GridAPIWrapper:
     async def _handle_response(response: ClientResponse) -> None:
         if response.status == 429:
             raise RateLimitException
-        elif response.status == 403:
+        elif response.status in (403, 404):
             # For some reason 403 means not found in the file-download API
             raise NotFoundException
         elif "application/json" in response.headers.get("content-type", ""):
