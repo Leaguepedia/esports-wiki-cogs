@@ -184,11 +184,15 @@ class MHTool(commands.Cog):
             return True
         return False
     
+    @staticmethod
     async def append_new_files_to_seen(seen: dict, game: Game):
-        seen_series = seen[game['series']['id']]
+        series_seen = seen.get(game['series']['id'], None)
+        if series_seen is None:
+            seen[game['series']['id']] = game['files']
+            return
         for file in game['files']:
-            if file not in seen_series:
-                seen_series.append(file)
+            if file not in series_seen:
+                series_seen.append(file)
 
     async def do_subscriptions(self, series_cache: list) -> NoReturn:
         async with self.subscription_lock, self.config.seen() as seen:
