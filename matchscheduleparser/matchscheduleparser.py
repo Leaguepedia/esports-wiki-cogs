@@ -16,7 +16,7 @@ START = """== {0} ==
 MATCH = """{{{{MatchSchedule|bestof={best_of} |team1={t1} |team2={t2} |team1score= |team2score= |winner=
 |date={date} |time={time} |timezone={timezone} |dst={dst} |pbp= |color= |vodinterview= |with= |stream={stream}
 {games}}}}}\n"""
-GAME = """|game{}={{{{MatchSchedule/Game\n|blue= |red= |winner= |ssel= |ff=\n|riot_platform_game_id=\n|recap=\n|vodpb=
+GAME = """|game{}={{{{MatchSchedule/Game\n|blue= |red= |winner= |first_sel= |ssel= |pick_sel= |first_pick= |ff=\n|riot_platform_game_id=\n|recap=\n|vodpb=
 |vodstart=\n|vodpost=\n|vodhl=\n|vodinterview=\n|with=\n|mvp=\n}}}}\n"""
 END = "{{MatchSchedule/End}}\n\n"
 
