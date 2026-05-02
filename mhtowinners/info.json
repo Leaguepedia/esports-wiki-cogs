@@ -6,11 +6,6 @@
     "mwrogue",
     "esports-cog-utils",
     "tsutils",
-    "mwcleric",
-    "bayes_lol_client",
-    "riot-transmute",
-    "lol-dto",
-    "mwparserfromhell",
-    "mwclient"
+    "mwparserfromhell"
   ]
 }

@@ -5,7 +5,6 @@ from redbot.core import commands, app_commands
 from tsutils.user_interaction import StatusManager
 
 from mhtowinners.sbtowinners_main import SbToWinnersRunner
-from mhtowinners.mhtowinners_main import MhToWinnersRunner
 
 
 class MhToWinners(commands.Cog):
@@ -21,13 +20,6 @@ class MhToWinners(commands.Cog):
         """Updates MatchSchedule using Scoreboard data"""
         title_list = [title.strip() for title in title_list.split(",")]
         await self._do_the_thing(ctx, SbToWinnersRunner, title_list)
-
-    @commands.hybrid_command(name="mhtowinners", pass_context=True)
-    @app_commands.describe(title_list="A comma separated list of tournament overview pages to update")
-    async def mhtowinners(self, ctx, *, title_list: str):
-        """Updates MatchSchedule using match history data"""
-        title_list = [title.strip() for title in title_list.split(",")]
-        await self._do_the_thing(ctx, MhToWinnersRunner, title_list)
 
     async def _do_the_thing(self, ctx, the_thing, *args):
         await ctx.send('Okay, starting now!')
