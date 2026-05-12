@@ -64,7 +64,7 @@ class MHTool(commands.Cog):
 
         self.session = aiohttp.ClientSession()
         self.config = Config.get_conf(self, identifier=847356477)
-        self.config.register_global(seen={}, allowed_channels={}, autochannel_seen={}, auto_channels={},
+        self.config.register_global(seen={}, allowed_channels={}, auto_channels={},
                                     invalid_games={}, grid_gte=False)
         self.config.register_user(allowed_tournaments={}, subscriptions={})
 
@@ -95,21 +95,27 @@ class MHTool(commands.Cog):
 
     async def do_loop(self) -> NoReturn:
         try:
-            async for _ in repeating_timer(120):
+            async for _ in repeating_timer(60):
                 try:
-                    series_cache = await self.api.get_series_list(
-                        limit=200,
+                    series_list = await self.api.get_series_list(
+                        limit=100,
                         gte=(await self.config.grid_gte()) or None,
-                        # If we don't specifiy a time limit we get a lot of scheduled games which are useless
-                        # We still get some this way but less
-                        lte=(
-                                datetime.now(timezone.utc) + timedelta(hours=4)
-                        ).replace(microsecond=0).astimezone().isoformat(),
                         return_file_list=True,
                         return_parent_tournaments=True
                     )
-                    await self.do_auto_channel(series_cache)
-                    await self.do_subscriptions(series_cache)
+                    async with self.config.seen() as seen:
+                        changed_series = await self.filter_changed_series(series_list, seen)
+                        changed_games = await self.extract_games_from_series_list(
+                            changed_series,
+                            filt=self.filter_unseen_platform_game_ids,
+                            seen=seen
+                        )
+                        await self.do_auto_channel(changed_games)
+                        await self.do_subscriptions(changed_games)
+                        for series in changed_series:
+                            await self.update_series_in_seen(seen, series)
+                        for game in changed_games:
+                            await self.append_new_games_to_seen(seen, game)
                 except asyncio.CancelledError:
                     raise
                 except Exception:
@@ -118,17 +124,12 @@ class MHTool(commands.Cog):
             return
 
     @staticmethod
-    async def get_changed_series(series_cache: list, seen: dict) -> list:
-        return sorted(
-            (
-                series for series in series_cache
-                if (series["id"] in seen and len(seen[series["id"]]) or -1) != len(series["file_list"])
-            ),
-            key=lambda s: isoparse(s['startTimeScheduled'])
-        )
+    async def filter_changed_series(series_list: list, seen: dict) -> list[Series]:
+        return [series for series in series_list if 
+                (series["id"] in seen and seen[series["id"]]["n_files"] or -1) != len(series["file_list"])]
 
     @staticmethod
-    async def get_game_file_list(series: Series, game_sequence: str) -> list:
+    async def get_game_file_list(series: Series, game_sequence: str) -> list[GridFileData]:
         ret = []
 
         for file_data in series["file_list"]:
@@ -137,9 +138,7 @@ class MHTool(commands.Cog):
 
         return ret
 
-    async def extract_games_from_series_list(self, series_list: list[Series],
-                                             retrieve_game_summary: Optional[bool] = True,
-                                             filt: Optional[Callable] = None, **kwargs) -> list[Game]:
+    async def extract_games_from_series_list(self, series_list: list[Series], filt: Optional[Callable] = None, **kwargs) -> list[Game]:
         games = {}
 
         if filt is None:
@@ -148,107 +147,93 @@ class MHTool(commands.Cog):
 
         for series in series_list:
             for file_data in series["file_list"]:
+                if not file_data["id"].startswith("state-summary"):
+                    continue
+
+                game = {}
+
                 game_sequence = file_data["id"].split("-")[-1]
-                game_id = f"{series['id']}_{game_sequence}"
+                game["sequence"] = game_sequence
 
-                if game_id in games.keys():
+                try:
+                    game["summary"] = await self.api.get_file("summary", series["id"], game_sequence)
+                    platform_id = game["summary"]["platformId"]
+                    r_game_id = game["summary"]["gameId"]
+                    platform_game_id = f"{platform_id}_{r_game_id}"
+                    game["platform_game_id"] = platform_game_id
+                except NotFoundException:
+                    # if summary file returns 404 we act as if the game didnt exist
                     continue
 
-                if not await filt(series, file_data, kwargs):
+                if platform_game_id in games.keys():
                     continue
 
-                game = {"sequence": game_sequence, "series": series,
-                        "files": await self.get_game_file_list(series, game_sequence)}
+                if not await filt(series["id"], platform_game_id, kwargs):
+                    continue
 
-                if retrieve_game_summary:
-                    try:
-                        game["summary"] = await self.api.get_file("summary", series["id"], game_sequence)
-                        platform_id = game["summary"]["platformId"]
-                        r_game_id = game["summary"]["gameId"]
-                        game["platform_game_id"] = f"{platform_id}_{r_game_id}"
-                    except NotFoundException:
-                        # if no summary file is available and we requested to retrieve it
-                        # we act as if the game didnt exist
-                        continue
+                game["series"] = series
+                game["files"] = await self.get_game_file_list(series, game_sequence)
 
-                games[game_id] = game
+                games[platform_game_id] = game
 
         return list(games.values())
 
     @staticmethod
-    async def filter_unseen_files(series: Series, file_data: GridFileData, kwargs):
+    async def filter_unseen_platform_game_ids(series_id: str, platform_game_id: str, kwargs) -> bool:
         seen = kwargs["seen"]
-        seen_files = seen.get(series["id"], [])
+        seen_platform_game_ids = seen.get(series_id, {}).get("ids", [])
 
-        if file_data["id"] not in seen_files:
+        if platform_game_id not in seen_platform_game_ids:
             return True
         return False
     
     @staticmethod
-    async def append_new_files_to_seen(seen: dict, game: Game):
-        series_seen = seen.get(game['series']['id'], None)
+    async def update_series_in_seen(seen: dict, series: Series) -> NoReturn:
+        series_id = series["id"]
+        series_seen = seen.get(series_id, None)
         if series_seen is None:
-            seen[game['series']['id']] = game['files']
+            seen[series_id] = {"ids": [], "n_files": len(series["file_list"])}
             return
-        for file in game['files']:
-            if file not in series_seen:
-                series_seen.append(file)
+        seen[series_id]["n_files"] = len(series["file_list"])
+    
+    @staticmethod
+    async def append_new_games_to_seen(seen: dict, game: Game) -> NoReturn:
+        series_id = game["series"]["id"]
+        seen[series_id]["ids"].append(game["platform_game_id"])
 
-    async def do_subscriptions(self, series_cache: list) -> NoReturn:
-        async with self.subscription_lock, self.config.seen() as seen:
-            tournaments_to_uid = defaultdict(set)
-            for u_id, data in (await self.config.all_users()).items():
-                for sub in data['subscriptions']:
-                    tournaments_to_uid[sub].add(u_id)
-
-            changed_series = await self.get_changed_series(series_cache, seen)
-
-            changed_games = await self.extract_games_from_series_list(changed_series, filt=self.filter_unseen_files,
-                                                                      seen=seen)
-                    
-            for u_id, data in (await self.config.all_users()).items():
-                if (user := self.bot.get_user(u_id)) is None:
-                    logger.warning(f"Failed to find user with ID {u_id} for subscription.")
-                    continue
-                msg = [
-                    await self.format_game_long(game, user) for game in changed_games if (
-                        u_id in tournaments_to_uid[game["series"]["tournament"]["name"]].union(
-                            tournaments_to_uid['ALL']
-                        )
-                        and f"state-details-riot-game-{game['sequence']}" in game["files"]
-                        and f"state-summary-riot-game-{game['sequence']}" in game["files"]
-                        and await self.has_access(user, game["series"]["tournament"]["name"])
-                    )
-                ]
-                try:
-                    for page in pagify('\n\n'.join(msg)):
-                        await user.send(page)
-                except discord.Forbidden:
-                    logger.warning(f"Unable to send subscription message to user {user}. (Forbidden)")
-
-            for game in changed_games:
-                await self.append_new_files_to_seen(seen, game)
-
-    async def do_auto_channel(self, series_cache: list) -> NoReturn:
-        async with self.config.autochannel_seen() as seen:
-            changed_series = await self.get_changed_series(series_cache, seen)
-
-            changed_games = await self.extract_games_from_series_list(changed_series, filt=self.filter_unseen_files,
-                                                                      seen=seen)
-
+    async def do_subscriptions(self, changed_games: list[Game]) -> NoReturn:
+        tournaments_to_uid = defaultdict(set)
+        for u_id, data in (await self.config.all_users()).items():
+            for sub in data['subscriptions']:
+                tournaments_to_uid[sub].add(u_id)
+    
+        for u_id, data in (await self.config.all_users()).items():
+            if (user := self.bot.get_user(u_id)) is None:
+                logger.warning(f"Failed to find user with ID {u_id} for subscription.")
+                continue
             msg = [
-                await self.format_game_long(game, None) for game in
-                changed_games if f"state-details-riot-game-{game['sequence']}" in game["files"]
-                and f"state-summary-riot-game-{game['sequence']}" in game["files"]
+                await self.format_game_long(game, user) for game in changed_games if (
+                    u_id in tournaments_to_uid[game["series"]["tournament"]["name"]].union(
+                        tournaments_to_uid['ALL']
+                    )
+                    and await self.has_access(user, game["series"]["tournament"]["name"])
+                )
             ]
+            try:
+                for page in pagify('\n\n'.join(msg)):
+                    await user.send(page)
+            except discord.Forbidden:
+                logger.warning(f"Unable to send subscription message to user {user}. (Forbidden)")
 
-            for cid in await self.config.auto_channels():
-                if None is not (channel := self.bot.get_channel(int(cid))):
-                    for page in pagify('\n\n'.join(msg)):
-                        await channel.send(page)
+    async def do_auto_channel(self, changed_games: list[Game]) -> NoReturn:
+        msg = [
+            await self.format_game_long(game, None) for game in changed_games
+        ]
 
-            for game in changed_games:
-                await self.append_new_files_to_seen(seen, game)
+        for cid in await self.config.auto_channels():
+            if None is not (channel := self.bot.get_channel(int(cid))):
+                for page in pagify('\n\n'.join(msg)):
+                    await channel.send(page)
 
     @commands.group()
     @commands.check(is_editor)
@@ -433,7 +418,8 @@ class MHTool(commands.Cog):
             await self.api.get_series_list(tournament_name=tournament,
                                            return_parent_tournaments=True,
                                            return_file_list=True,
-                                           include_tournament_children=True),
+                                           include_tournament_children=True,
+                                           limit=limit),
             key=lambda s: isoparse(s['startTimeScheduled'])
         )
 
@@ -471,13 +457,12 @@ class MHTool(commands.Cog):
 
         site = await login_if_possible(ctx, self.bot, 'lol')
 
-        series_list = sorted(
-            await self.api.get_series_list(tournament_name=tournament,
-                                           return_parent_tournaments=True,
-                                           return_file_list=True,
-                                           include_tournament_children=True,
-                                           gte=since),
-            key=lambda s: isoparse(s['startTimeScheduled'])
+        series_list = await self.api.get_series_list(
+            tournament_name=tournament,
+            return_parent_tournaments=True,
+            return_file_list=True,
+            include_tournament_children=True,
+            gte=since
         )
 
         if not series_list:
@@ -486,7 +471,7 @@ class MHTool(commands.Cog):
 
         games = (await self.filter_new(
             site,
-            await self.extract_games_from_series_list(series_list, retrieve_game_summary=True)
+            await self.extract_games_from_series_list(series_list)
         ))[-limit:]
 
         ret = [await self.format_game_long(game, ctx.author) for game in games]
@@ -510,7 +495,8 @@ class MHTool(commands.Cog):
                                            return_parent_tournaments=True,
                                            return_file_list=True,
                                            include_tournament_children=True,
-                                           gte=date),
+                                           gte=date,
+                                           limit=limit),
             key=lambda s: isoparse(s['startTimeScheduled'])
         )
 
@@ -536,7 +522,7 @@ class MHTool(commands.Cog):
             series_data = await self.api.get_series_data_by_platform_game_id(game_id, return_parent_tournament=True)
             series_files = await self.api.get_files_by_platform_game_id(game_id)
         except NotFoundException:
-            return await ctx.send("The game could not be found!")
+            return await ctx.send("Game data could not be found!")
         tournament_name = series_data["tournament"]["name"]
         if not await self.has_access(ctx.author, tournament_name):
             return await ctx.send(f'You do not have permission to query the tournament `{tournament_name}`.')
@@ -750,9 +736,8 @@ class MHTool(commands.Cog):
         teams = winner = 'Unknown'
         has_winner = False
 
-        summary = (game.get("summary") or
-                   await self.api.get_file("summary", game["series"]["id"], game["sequence"]))
-        platform_game_id = f"{summary['platformId']}_{summary['gameId']}"
+        summary = game["summary"]
+        platform_game_id = game["platform_game_id"]
         if "participants" in summary and len(summary['participants'][::5]) == 2:
             t1, t2 = summary['participants'][::5]
             team1_short = (t1.get('riotIdGameName') or t1['summonerName']).split(' ')[0]
